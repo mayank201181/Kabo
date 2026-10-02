@@ -179,44 +179,53 @@ export class Game {
     this.endTurn();
   }
 
-  // Swap the drawn card for one of your cards, or for several cards that all
-  // share a value. A wrong guess reveals them and you keep everything.
+  // Keep the drawn card: it replaces one of your cards, which is discarded.
   exchange(pid, slots) {
     this.needTurn(pid, 'decide');
     const p = this.player(pid);
-    this.need(Array.isArray(slots) && slots.length > 0, 'Pick at least one of your cards');
-    this.need(new Set(slots).size === slots.length && slots.every((i) => this.ownSlot(p, i)), 'Pick your own cards');
+    const slot = Array.isArray(slots) && slots.length === 1 ? slots[0] : null;
+    this.need(this.ownSlot(p, slot), 'Pick one of your cards to swap');
     const { drawn, from } = this.turn;
-    const up = from === 'discard' && this.rules.faceUpPickups;
-    const cards = slots.map((i) => p.hand[i].card);
-    const value = cardValue(cards[0]);
+    const old = p.hand[slot].card;
+    this.toDiscard(old);
+    p.hand[slot] = { card: drawn, up: from === 'discard' && this.rules.faceUpPickups };
     const extra = from === 'discard' ? { c: face(drawn) } : {};
+    this.emit({ t: 'exchange', pid, slots: [slot], into: slot, from, out: [face(old)], ...extra });
+    this.endTurn();
+  }
 
-    if (cards.every((c) => cardValue(c) === value)) {
-      const into = Math.min(...slots);
-      for (const i of slots) {
-        this.toDiscard(p.hand[i].card);
-        p.hand[i] = null;
-      }
-      p.hand[into] = { card: drawn, up };
-      this.emit({ t: 'exchange', pid, slots, into, from, out: cards.map(face), ...extra });
-    } else {
-      for (const i of slots) {
-        p.hand[i].up = true;
-        this.knowAll(p.hand[i].card);
-      }
-      while (p.hand.length && p.hand.at(-1) === null) p.hand.pop();
-      p.hand.push({ card: drawn, up });
-      const added = [p.hand.length - 1];
-      if (slots.length >= 3) {
-        this.refillDeck();
-        if (this.deck.length) {
-          p.hand.push({ card: this.deck.pop(), up: false });
-          added.push(p.hand.length - 1);
-        }
-      }
-      this.emit({ t: 'mismatch', pid, slots, shown: cards.map(face), added, from, ...extra });
+  // House rule: drew a card from the deck with the same rank as card(s) you
+  // have? Throw them all on the discard pile and your hand gets smaller. A
+  // card that doesn't match is turned face-up and costs a penalty card.
+  match(pid, slots) {
+    this.needTurn(pid, 'decide');
+    this.need(this.turn.from === 'deck', 'You can only match a card drawn from the deck');
+    const p = this.player(pid);
+    this.need(Array.isArray(slots) && slots.length > 0, 'Pick the card(s) that match');
+    this.need(new Set(slots).size === slots.length && slots.every((i) => this.ownSlot(p, i)), 'Pick your own cards');
+    const drawn = this.turn.drawn;
+    const hits = slots.filter((i) => p.hand[i].card.r === drawn.r);
+    const misses = slots.filter((i) => p.hand[i].card.r !== drawn.r);
+    const out = hits.map((i) => face(p.hand[i].card));
+    const shown = misses.map((i) => face(p.hand[i].card));
+    for (const i of hits) {
+      this.toDiscard(p.hand[i].card);
+      p.hand[i] = null;
     }
+    for (const i of misses) {
+      p.hand[i].up = true;
+      this.knowAll(p.hand[i].card);
+    }
+    this.toDiscard(drawn);
+    while (p.hand.length && p.hand.at(-1) === null) p.hand.pop();
+    const added = [];
+    for (let k = 0; k < misses.length && this.refillDeck(); k++) {
+      p.hand.push({ card: this.deck.pop(), up: false });
+      added.push(p.hand.length - 1);
+    }
+    this.emit({ t: 'match', pid, c: face(drawn), hits, out, misses, shown, added });
+    // Got rid of every card: the round is over.
+    if (p.hand.every((s) => s === null)) return this.endRound('empty', pid);
     this.endTurn();
   }
 
@@ -351,7 +360,7 @@ export class Game {
 
   // ---------------------------------------------------------------- scoring
 
-  endRound(reason) {
+  endRound(reason, emptied = null) {
     this.phase = 'roundEnd';
     this.turn = null;
     const { target, kamikaze } = this.rules;
@@ -386,12 +395,13 @@ export class Game {
     this.results = {
       round: this.round,
       reason,
+      emptied,
       caboBy: this.caboBy,
       caboName: this.caboName,
       kamikaze: kami ? kami.pid : null,
       rows: rows.map((r) => ({ ...r, cards: r.cards.map(face) })),
     };
-    this.emit({ t: 'roundEnd', round: this.round, reason, caboBy: this.caboBy, kamikaze: this.results.kamikaze });
+    this.emit({ t: 'roundEnd', round: this.round, reason, emptied, caboBy: this.caboBy, kamikaze: this.results.kamikaze });
     if (this.players.some((p) => p.total > target)) this.finishGame();
   }
 

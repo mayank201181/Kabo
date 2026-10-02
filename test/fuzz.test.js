@@ -28,7 +28,9 @@ function checkInvariants(g) {
   const ids = cards.map((c) => c.id);
   assert.equal(new Set(ids).size, ids.length, 'a card is in two places');
   assert.equal(ids.length, 52, 'a card went missing');
-  for (const p of g.players) assert.ok(p.hand.some(Boolean), 'a hand can never be empty');
+  if (g.phase === 'peek' || g.phase === 'turn') {
+    for (const p of g.players) assert.ok(p.hand.some(Boolean), 'an empty hand must end the round');
+  }
 
   const open = g.phase === 'roundEnd' || g.phase === 'gameOver';
   for (const viewer of [...g.players.map((p) => p.id), 'watcher']) {
@@ -87,10 +89,15 @@ function randomMove(g, rng) {
         return g.discardDrawn(pid);
       }
     }
-    if (from === 'deck' && x < 0.65) return g.discardDrawn(pid);
+    if (from === 'deck' && x < 0.6) return g.discardDrawn(pid);
     const own = slotsOf(me);
-    const n = rng() < 0.25 ? Math.min(own.length, 2 + Math.floor(rng() * 2)) : 1;
-    return g.exchange(pid, shuffle(own, rng).slice(0, n));
+    if (from === 'deck' && x < 0.8) {
+      // Sometimes a real match, sometimes a guess.
+      const same = own.filter((i) => me.hand[i].card.r === drawn.r);
+      const pickN = (arr) => shuffle(arr, rng).slice(0, 1 + Math.floor(rng() * Math.min(arr.length, 3)));
+      return g.match(pid, same.length && rng() < 0.7 ? pickN(same) : pickN(own));
+    }
+    return g.exchange(pid, [pick(own)]);
   }
   return g.finishReveal(pid, rng() < 0.5);
 }
@@ -105,6 +112,7 @@ function chaos(g, rng) {
     () => g.takeDiscard(pid),
     () => g.callCabo(pid),
     () => g.exchange(pid, junk),
+    () => g.match(pid, junk),
     () => g.discardDrawn(pid),
     () => g.usePower(pid, { own: junk, pid: pick(g.players).id, slot: junk }),
     () => g.usePower(pid, junk ?? {}),

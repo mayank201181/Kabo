@@ -1197,6 +1197,17 @@ h3 {
   padding-right: 10px;
 }
 
+/* Keep / Match / Discard / Power: two rows of two. */
+.actions.quad .btn {
+  flex: 1 1 calc(50% - 4px);
+  max-width: none;
+}
+
+.btn.match {
+  background: rgba(76, 195, 138, 0.2);
+  border-color: rgba(110, 220, 160, 0.55);
+}
+
 .screen.table.paused .center,
 .screen.table.paused .opps,
 .screen.table.paused .me {

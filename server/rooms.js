@@ -281,6 +281,7 @@ export class Room {
       case 'takeDiscard': return g.takeDiscard(id);
       case 'cabo': return g.callCabo(id);
       case 'exchange': return g.exchange(id, cmd.slots);
+      case 'match': return g.match(id, cmd.slots);
       case 'discard': return g.discardDrawn(id);
       case 'power': return g.usePower(id, cmd.target ?? {});
       case 'reveal': return g.finishReveal(id, cmd.swap === true);

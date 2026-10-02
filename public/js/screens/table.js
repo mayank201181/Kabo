@@ -146,6 +146,15 @@ function slotAction(st, p, i, s) {
       break;
     case 'exchange':
       if (mine) {
+        out.sel = ui.own[0] === i;
+        out.tap = () => ctx.setUi({ own: [i] });
+      }
+      break;
+    case 'match':
+      if (!mine) break;
+      // A face-up card everyone can see is obviously not a match.
+      if (s.up && s.c && s.c.r !== t.drawn.r) out.dim = true;
+      else {
         out.sel = ui.own.includes(i);
         out.tap = () => ctx.setUi({ own: out.sel ? ui.own.filter((x) => x !== i) : [...ui.own, i] });
       }
@@ -335,17 +344,21 @@ function decideBar(st, bar, hint) {
   if (t.from === 'discard' || ui.mode === 'exchange') {
     const n = ui.own.length;
     return bar(
-      hint(
-        n === 0
-          ? t.from === 'discard'
-            ? `Tap the card to swap for the ${cardText(t.drawn)}`
-            : 'Tap the card you want to replace'
-          : n === 1
-            ? 'Tap more cards only if they all have the same value'
-            : `Matching ${n} cards. If they're not all the same value, you keep them face-up!`,
-      ),
-      h('button.btn.primary', { disabled: n === 0, onClick: () => ctx.send('exchange', { slots: ui.own }) }, n > 1 ? `Swap ${n} cards` : 'Swap'),
+      hint(n ? 'Swap this card?' : t.from === 'discard' ? `Tap the card to swap for the ${cardText(t.drawn)}` : 'Tap the card you want to replace'),
+      h('button.btn.primary', { disabled: n === 0, onClick: () => ctx.send('exchange', { slots: ui.own }) }, 'Swap'),
       t.from === 'deck' && back,
+    );
+  }
+  if (ui.mode === 'match') {
+    const n = ui.own.length;
+    return bar(
+      hint(
+        n
+          ? `Throw ${n === 1 ? 'it' : `all ${n}`} away with the ${cardText(t.drawn)}? A wrong guess costs a penalty card.`
+          : `Tap your card(s) that are also ${rankName(t.drawn.r)}`,
+      ),
+      h('button.btn.primary', { disabled: n === 0, onClick: () => ctx.send('match', { slots: ui.own }) }, n > 1 ? `Match ${n} cards` : 'Match'),
+      back,
     );
   }
   if (ui.mode === 'peek') return bar(hint('Tap one of your face-down cards to peek at it'), back);
@@ -364,9 +377,14 @@ function decideBar(st, bar, hint) {
     );
   }
   const p = t.power;
-  return bar(
+  return h(
+    'footer.actions.quad',
     h('button.btn.primary', { onClick: () => ctx.setUi({ mode: 'exchange', own: [] }) }, 'Keep it'),
+    h('button.btn.match', { onClick: () => ctx.setUi({ mode: 'match', own: [] }) }, `Match ${t.drawn.r}`),
     h('button.btn', { onClick: () => ctx.send('discard') }, 'Discard'),
     p && h('button.btn.power', { onClick: () => ctx.setUi({ mode: p, own: [], other: null }) }, `${POWERS[p].icon} ${POWERS[p].name}`),
   );
 }
+
+const RANK_NAMES = { A: 'an Ace', J: 'a Jack', Q: 'a Queen', K: 'a King', 8: 'an 8' };
+const rankName = (r) => RANK_NAMES[r] ?? `a ${r}`;

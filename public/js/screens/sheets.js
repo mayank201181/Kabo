@@ -52,7 +52,7 @@ function rulesSheet(ctx) {
     h('h3', 'On your turn, do one of these'),
     h(
       'ol.rules',
-      h('li', h('b', 'Draw from the deck. '), 'Keep it by swapping it for one of your cards, or discard it.'),
+      h('li', h('b', 'Draw from the deck. '), 'Keep it by swapping it for one of your cards, match it, or discard it.'),
       h(
         'li',
         h('b', 'Take the top discard. '),
@@ -73,7 +73,7 @@ function rulesSheet(ctx) {
     h('h3', 'Matching'),
     h(
       'p',
-      'You can swap a drawn card for two or more of your cards at once, if they all have the same value. Get it wrong and those cards are turned face-up, and you keep them plus the new card. Three or more wrong also costs one extra card.',
+      'Drew a card from the deck with the same rank as one of yours, like a 2 when you know you have a 2? Tap Match and throw both on the discard pile, so your hand gets smaller. You can match more than one card at a time. If a card you pick does not match, it is turned face-up and you take a penalty card. Get rid of all your cards and the round ends.',
     ),
     h('h3', 'Scoring'),
     h(
@@ -226,6 +226,7 @@ export function resultsSheet(ctx) {
   const hostName = v.members.find((m) => m.id === v.host)?.name ?? 'the host';
   let headline;
   if (r.kamikaze) headline = `💥 Kamikaze by ${name(r.kamikaze)}! Everyone else scores ${g.rules.target / 2}.`;
+  else if (r.reason === 'empty') headline = `🎯 ${name(r.emptied)} got rid of every card!`;
   else if (r.caboBy) {
     const row = r.rows.find((x) => x.pid === r.caboBy);
     const who = row ? name(r.caboBy) : r.caboName;
