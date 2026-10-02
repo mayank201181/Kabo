@@ -25,11 +25,15 @@ export function describe(ev, v) {
     case 'putback': return `${N} put the ${cardText(ev.c)} back`;
     case 'exchange': {
       const what = ev.from === 'discard' ? `the ${cardText(ev.c)}` : 'the drawn card';
-      if (ev.slots.length === 1) return `${N} swapped ${own(ev.pid)} card ${ev.slots[0] + 1} (${cardText(ev.out[0])}) for ${what}`;
-      return `${N} matched ${ev.slots.length} cards (${ev.out.map(cardText).join(' ')}) and swapped them for ${what}`;
+      return `${N} swapped ${own(ev.pid)} card ${ev.into + 1} (${cardText(ev.out[0])}) for ${what}`;
     }
-    case 'mismatch':
-      return `${N} tried to match ${ev.shown.map(cardText).join(' ')}: no match! They stay face-up${ev.added.length > 1 ? ', plus a penalty card' : ''}`;
+    case 'match': {
+      const hit = ev.out.length ? `${N} matched the ${cardText(ev.c)} with ${own(ev.pid)} ${ev.out.map(cardText).join(' ')}` : '';
+      if (!ev.shown.length) return hit;
+      const pen = ev.added.length === 1 ? 'a penalty card' : `${ev.added.length} penalty cards`;
+      const miss = `${ev.shown.map(cardText).join(' ')} didn't match, so ${ev.pid === v.me ? 'you get' : 'they get'} ${pen}`;
+      return hit ? `${hit}, but ${miss}` : `${N} tried to match the ${cardText(ev.c)}, but ${own(ev.pid)} ${miss}`;
+    }
     case 'power': return `${N} played the ${cardText(ev.c)}: ${POWERS[ev.power].name}`;
     case 'peek': return `${N} peeked at ${own(ev.pid)} card ${ev.slot + 1}`;
     case 'spy': return `${N} spied on ${ref(ev.b.pid, ev.b.slot, ev.pid)}`;
@@ -40,7 +44,9 @@ export function describe(ev, v) {
     case 'cabo': return `${N} called KABO! Everyone else gets one last turn`;
     case 'reshuffle': return `Deck empty: the discard pile was shuffled into a new deck (${ev.n} cards)`;
     case 'timeout': return `${N} ran out of time`;
-    case 'roundEnd': return ev.reason === 'deck' ? 'The deck ran out: round over' : `Round ${ev.round} over`;
+    case 'roundEnd':
+      if (ev.reason === 'empty') return `${name(ev.emptied)} got rid of every card: round over`;
+      return ev.reason === 'deck' ? 'The deck ran out: round over' : `Round ${ev.round} over`;
     case 'gameOver': {
       const names = ev.winners.map((id) => name(id));
       return `${names.join(' & ')} ${names.length === 1 && names[0] === 'You' ? 'win' : names.length > 1 ? 'win' : 'wins'} the game!`;

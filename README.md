@@ -15,7 +15,7 @@ The Kabo (Cabo) memory card game for 2–10 players, played online on phones. On
   - 9, 10: spy on someone else's card.
   - J, Q: blind-swap one of yours with one of theirs.
   - K♠, K♣: look at one of yours and one of theirs, then swap or not. Red Kings can do the same, but nobody will because they're worth −1.
-- **Matching:** you can swap a drawn card for 2+ of your cards with the same value. If they don't match, they turn face-up and you keep them plus the new card. Getting 3+ wrong also costs an extra card.
+- **Matching:** draw a card from the deck with the same rank as one of yours (a 2 when you know you have a 2) and you can throw both on the discard pile, so your hand gets smaller. You can match more than one card at a time. A card that doesn't match is turned face-up and costs a penalty card. Get rid of all your cards and the round ends.
 - **Deck runs out:** the discard pile is reshuffled into a new deck.
 - **Scoring:**
   - Your score for the round is the total of your cards.

@@ -329,9 +329,11 @@ function react(events, v) {
       case 'putback':
         sfx.place();
         break;
-      case 'mismatch':
-        sfx.oops();
-        toast(describe(ev, v), ev.pid === me ? 'error' : 'info');
+      case 'match':
+        if (ev.shown.length) {
+          sfx.oops();
+          toast(describe(ev, v), ev.pid === me ? 'error' : 'info');
+        } else sfx.place();
         break;
       case 'peek':
       case 'spy':
@@ -423,13 +425,22 @@ function animate(events, before, v) {
         });
         break;
       }
-      case 'mismatch':
+      case 'match':
+        ev.hits.forEach((i, k) => {
+          fly({ from: before.get(`s:${ev.pid}:${i}`), to: after.get('discard'), card: cardFor(ev.out[k], 'md'), delay: delay + k * 90 });
+        });
+        fly({ from: before.get('drawn'), to: after.get('discard'), card: cardFor(ev.c, 'md'), delay: delay + ev.hits.length * 90, hide: keyed('discard') });
+        ev.misses.forEach((i) =>
+          keyed(`s:${ev.pid}:${i}`)?.animate(
+            [{ transform: 'translateX(0)' }, { transform: 'translateX(-5px)' }, { transform: 'translateX(5px)' }, { transform: 'translateX(0)' }],
+            { duration: 300, iterations: 2 },
+          ),
+        );
         ev.added.forEach((i, k) => {
           const key = `s:${ev.pid}:${i}`;
           const target = keyed(key);
-          fly({ from: k === 0 ? before.get('drawn') : after.get('deck'), to: after.get(key), card: target ? target.cloneNode(true) : backEl(), delay: delay + k * 160, hide: target });
+          fly({ from: after.get('deck'), to: after.get(key), card: target ? target.cloneNode(true) : backEl(), delay: delay + 300 + k * 160, hide: target });
         });
-        ev.slots.forEach((i) => keyed(`s:${ev.pid}:${i}`)?.animate([{ transform: 'translateX(0)' }, { transform: 'translateX(-5px)' }, { transform: 'translateX(5px)' }, { transform: 'translateX(0)' }], { duration: 300, iterations: 2 }));
         break;
       case 'swap': {
         const ka = `s:${ev.a.pid}:${ev.a.slot}`;

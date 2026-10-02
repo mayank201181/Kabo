@@ -114,28 +114,71 @@ test('expert mode keeps discard pickups face-down', () => {
   assert.deepEqual(g.viewFor('p1').players[0].slots[0], { up: false });
 });
 
-test('matching several same-value cards for one drawn card', () => {
+test('Keep swaps exactly one card', () => {
   const g = rig([['5S', '9S', '5H', '8S'], ['4C', '6H', '7H', '8H']], { deck: ['2D', '4D'] });
   g.drawDeck('p0');
-  g.exchange('p0', [2, 0]);
-  assert.deepEqual(codes(g.players[0].hand), ['2D', '9S', null, '8S']);
-  assert.deepEqual(ev(g, 'exchange')[0].out, [{ r: '5', s: 'H' }, { r: '5', s: 'S' }]);
-  assert.equal(g.discard.length, 3);
+  assert.throws(() => g.exchange('p0', [0, 2]), /one of your cards/);
+  assert.throws(() => g.exchange('p0', []), /one of your cards/);
+  g.exchange('p0', [2]);
+  assert.deepEqual(codes(g.players[0].hand), ['5S', '9S', '2D', '8S']);
 });
 
-test('a wrong match reveals the cards and you keep them plus the new card', () => {
-  const g = rig([['5S', '9S', '6H', '8S'], ['4C', '6C', '7H', '8H']], { deck: ['2D', '4D', '3S'] });
+test('match: draw a 2, throw away your 2 as well, and your hand shrinks', () => {
+  const g = rig([['5S', '2C', '7D', '9H'], ['4C', '6H', '7H', '8H']], { deck: ['2H', '4D'], discard: ['3C'], up: ['0:1'] });
   g.drawDeck('p0');
-  g.exchange('p0', [0, 2]);
-  assert.deepEqual(codes(g.players[0].hand), ['5S', '9S', '6H', '8S', '2D']);
-  assert.deepEqual(g.players[0].hand.map((s) => s.up), [true, false, true, false, false]);
+  g.match('p0', [1]);
+  assert.deepEqual(codes(g.players[0].hand), ['5S', null, '7D', '9H']);
+  assert.deepEqual(g.discard.slice(-2).map((c) => c.r + c.s), ['2C', '2H'], 'the drawn card ends up on top');
   assert.equal(g.turn.pid, 'p1');
-  // Three or more wrong: one extra penalty card, unseen.
+  assert.deepEqual(ev(g, 'match')[0].out, [{ r: '2', s: 'C' }]);
+});
+
+test('match several cards at once; ranks match even when values differ (kings)', () => {
+  const g = rig([['KS', 'KH', '7D', '9H'], ['2S', '2C', '7H', '8H']], { deck: ['KC', '2H', '4D'], discard: ['3C'] });
+  g.drawDeck('p0');
+  g.match('p0', [0, 1]);
+  assert.deepEqual(codes(g.players[0].hand), [null, null, '7D', '9H']);
   g.drawDeck('p1');
-  g.exchange('p1', [0, 1, 2]);
-  assert.deepEqual(codes(g.players[1].hand), ['4C', '6C', '7H', '8H', '4D', '3S']);
-  assert.deepEqual(ev(g, 'mismatch')[1].added, [4, 5]);
-  assert.equal(g.known.get('p1').has(g.players[1].hand[5].card.id), false);
+  g.match('p1', [0, 1]);
+  assert.deepEqual(codes(g.players[1].hand), [null, null, '7H', '8H']);
+});
+
+test('a wrong match turns your card face-up and costs a penalty card', () => {
+  const g = rig([['5S', '6C', '7D', '9H'], ['2S', '4C', '7H', '8H']], { deck: ['2H', '3S', '2D', 'AD'] });
+  g.drawDeck('p0');
+  g.match('p0', [1]);
+  assert.deepEqual(codes(g.players[0].hand), ['5S', '6C', '7D', '9H', '3S']);
+  assert.deepEqual(g.players[0].hand.map((s) => s.up), [false, true, false, false, false]);
+  assert.equal(g.discard.at(-1).r + g.discard.at(-1).s, '2H', 'the drawn card is still discarded');
+  assert.equal(g.known.get('p0').has(g.players[0].hand[4].card.id), false, 'the penalty card is unseen');
+  // One right and one wrong: the right one goes, the wrong one stays face-up, one penalty card.
+  g.drawDeck('p1');
+  g.match('p1', [0, 1]);
+  assert.deepEqual(codes(g.players[1].hand), [null, '4C', '7H', '8H', 'AD']);
+  assert.equal(g.players[1].hand[1].up, true);
+  assert.deepEqual(ev(g, 'match')[1].hits, [0]);
+  assert.deepEqual(ev(g, 'match')[1].misses, [1]);
+});
+
+test('match only works on a card drawn from the deck', () => {
+  const g = rig([['5S', '2C'], ['4C', '6H']], { deck: ['9D'], discard: ['2H'] });
+  g.takeDiscard('p0');
+  assert.throws(() => g.match('p0', [1]), /drawn from the deck/);
+  g.exchange('p0', [1]);
+  g.drawDeck('p1');
+  assert.throws(() => g.match('p1', [5]), /your own cards/);
+  assert.throws(() => g.match('p1', []), /card\(s\) that match/);
+  assert.equal(g.turn.stage, 'decide');
+});
+
+test('getting rid of your last card ends the round', () => {
+  const g = rig([['2C'], ['9C', '9D', '9H', '9S']], { deck: ['2H', '4D'], discard: ['3C'] });
+  g.drawDeck('p0');
+  g.match('p0', [0]);
+  assert.equal(g.phase, 'roundEnd');
+  assert.equal(g.results.reason, 'empty');
+  assert.equal(g.results.emptied, 'p0');
+  assert.deepEqual(g.results.rows.map((r) => r.score), [0, 36]);
 });
 
 test('peek and spy show the card only to the player using the power', () => {

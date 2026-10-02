@@ -80,6 +80,16 @@ export function botStep(game, pid, rng = Math.random) {
 
   if (t.stage === 'decide') {
     const v = cardValue(t.drawn);
+    if (t.from === 'deck') {
+      // Throw away known cards of the same rank when that beats keeping the card.
+      const hand = game.player(pid).hand;
+      const same = cards.filter((c) => c.known && c.v > 0 && hand[c.i].card.r === t.drawn.r);
+      const gain = same.reduce((a, c) => a + c.v, 0);
+      if (gain > 0 && gain >= worst.v - v) {
+        game.match(pid, same.map((c) => c.i));
+        return true;
+      }
+    }
     if (t.from === 'discard' || v < worst.v - (worst.known ? 0 : 1.5)) {
       game.exchange(pid, [worst.i]);
       return true;
