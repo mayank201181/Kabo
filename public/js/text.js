@@ -34,6 +34,14 @@ export function describe(ev, v) {
       const miss = `${ev.shown.map(cardText).join(' ')} didn't match, so ${ev.pid === v.me ? 'you get' : 'they get'} ${pen}`;
       return hit ? `${hit}, but ${miss}` : `${N} tried to match the ${cardText(ev.c)}, but ${own(ev.pid)} ${miss}`;
     }
+    case 'snap': {
+      if (ev.result === 'late') return `${N} ${ev.pid === v.me ? 'were' : 'was'} too late to match the ${cardText(ev.c)}: penalty card`;
+      const card = ref(ev.owner, ev.slot, ev.pid);
+      if (ev.result === 'wrong') return `${N} tried to match the ${cardText(ev.c)} with ${card}, but it was the ${cardText(ev.shown)}: penalty card`;
+      if (ev.owner === ev.pid) return `${N} matched the ${cardText(ev.c)} out of turn with ${own(ev.pid)} ${cardText(ev.out)}!`;
+      const them = ev.owner === v.me ? 'you' : name(ev.owner);
+      return `${N} matched ${ev.owner === v.me ? 'your' : `${name(ev.owner)}'s`} ${cardText(ev.out)} on the ${cardText(ev.c)} and gave ${them} one of ${own(ev.pid)} cards`;
+    }
     case 'power': return `${N} played the ${cardText(ev.c)}: ${POWERS[ev.power].name}`;
     case 'peek': return `${N} peeked at ${own(ev.pid)} card ${ev.slot + 1}`;
     case 'spy': return `${N} spied on ${ref(ev.b.pid, ev.b.slot, ev.pid)}`;

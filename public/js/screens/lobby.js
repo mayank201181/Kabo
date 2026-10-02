@@ -121,6 +121,13 @@ export function renderLobby(ctx) {
       toggle(`Red Kings (K${SUIT.H} K${SUIT.D}) can Look & swap`, 'They are worth −1 either way', s.redKingPower, (x) => set({ redKingPower: x }), ro),
       toggle("Lock the caller's cards", "After Kabo, nobody can swap the caller's cards", s.lockCaller, (x) => set({ lockCaller: x }), ro),
       toggle(
+        'Match out of turn (snap)',
+        "First to throw a matching card on a fresh discard gets rid of it; late or wrong = penalty. You can match someone else's card too, then give them one of yours.",
+        s.snap,
+        (x) => set({ snap: x }),
+        ro,
+      ),
+      toggle(
         `Kamikaze (Q Q K${SUIT.S} K${SUIT.C})`,
         `Scores 0, and everyone else gets ${s.target / 2}`,
         s.kamikaze,

@@ -16,6 +16,7 @@ The Kabo (Cabo) memory card game for 2–10 players, played online on phones. On
   - J, Q: blind-swap one of yours with one of theirs.
   - K♠, K♣: look at one of yours and one of theirs, then swap or not. Red Kings can do the same, but nobody will because they're worth −1.
 - **Matching:** draw a card from the deck with the same rank as one of yours (a 2 when you know you have a 2) and you can throw both on the discard pile, so your hand gets smaller. You can match more than one card at a time. A card that doesn't match is turned face-up and costs a penalty card. Get rid of all your cards and the round ends.
+- **Matching out of turn (snap):** whenever a card lands on the discard pile, anyone can throw a card of the same rank on it, even out of turn. Only the first person gets it; anyone later, or with the wrong card, takes a penalty card. You can also throw someone else's card if you know it (e.g. you spied on it), then give them one of yours in its place. The Kabo caller's cards are final.
 - **Deck runs out:** the discard pile is reshuffled into a new deck.
 - **Scoring:**
   - Your score for the round is the total of your cards.
@@ -25,7 +26,7 @@ The Kabo (Cabo) memory card game for 2–10 players, played online on phones. On
   - Landing exactly on the target drops you to half of it, once per game.
 - **Game end:** play to **50** (or 100). The game ends when someone goes over, and the lowest total wins.
 
-The host can switch these in the lobby: target 50/100, turn timer, reshuffle vs. end the round, face-up discard pickups (expert mode keeps them face-down), whether red Kings have the power, locking the Kabo caller's cards, and Kamikaze.
+The host can switch these in the lobby: target 50/100, turn timer, reshuffle vs. end the round, face-up discard pickups (expert mode keeps them face-down), whether red Kings have the power, locking the Kabo caller's cards, matching out of turn, and Kamikaze.
 
 ## Features
 

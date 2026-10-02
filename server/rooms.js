@@ -2,7 +2,7 @@
 // sending each connected device its own view of the game.
 
 import { Game, GameError, DEFAULT_RULES } from './game.js';
-import { botStep } from './bot.js';
+import { botStep, botSnapSlot } from './bot.js';
 import { cleanName, makeRoomCode, newId, cryptoRandom } from './util.js';
 
 export const MAX_SEATS = 10;
@@ -16,7 +16,7 @@ const BOT_NAMES = ['Chitti', 'Jaadoo', 'G.One', 'Robo', 'Bolt', 'Chip', 'Pixel',
 
 export const DEFAULT_SETTINGS = Object.freeze({ ...DEFAULT_RULES, turnTimer: 45 });
 const CHOICES = { target: [50, 100], turnTimer: [0, 30, 45, 60, 90, 120] };
-const SWITCHES = ['reshuffle', 'faceUpPickups', 'redKingPower', 'lockCaller', 'kamikaze'];
+const SWITCHES = ['reshuffle', 'faceUpPickups', 'redKingPower', 'lockCaller', 'kamikaze', 'snap'];
 
 const DEFAULT_TIMING = {
   botMin: 900,          // bots pause like people do, so moves can be followed
@@ -25,6 +25,8 @@ const DEFAULT_TIMING = {
   hostGrace: 30_000,    // an offline host hands over after this long
   peekMin: 30_000,      // the opening peek never gets less than this
   revealMax: 20_000,    // time to look at peeked/spied cards
+  snapMin: 1600,        // bots give people a head start when matching out of turn
+  snapMax: 3200,
 };
 
 const need = (cond, msg) => {
@@ -46,7 +48,8 @@ export class Room {
     this.log = [];
     this.seq = 0;
     this.sockets = new Map();
-    this.timers = { turn: null, bot: null, host: null };
+    this.timers = { turn: null, bot: null, host: null, snap: null };
+    this.snapFor = null;
     this.stage = { key: '', at: Date.now() };
     this.deadlineInfo = null;
     this.lastSeen = Date.now();
@@ -282,6 +285,7 @@ export class Room {
       case 'cabo': return g.callCabo(id);
       case 'exchange': return g.exchange(id, cmd.slots);
       case 'match': return g.match(id, cmd.slots);
+      case 'snap': return g.snap(id, cmd.target ?? {});
       case 'discard': return g.discardDrawn(id);
       case 'power': return g.usePower(id, cmd.target ?? {});
       case 'reveal': return g.finishReveal(id, cmd.swap === true);
@@ -471,6 +475,34 @@ export class Room {
     return this.list().some((m) => !m.bot && m.connected);
   }
 
+  // A bot that knows it holds a card matching the fresh discard throws it,
+  // after a pause so people get the first chance.
+  armBotSnap() {
+    const g = this.game;
+    const win = g && g.phase === 'turn' && !this.paused && this.someoneHere() ? g.snapWin : null;
+    if (win && win.card === this.snapFor) return;
+    clearTimeout(this.timers.snap);
+    this.timers.snap = null;
+    this.snapFor = win?.card ?? null;
+    if (!win || win.by) return;
+    const bots = g.players.filter((p) => this.members.get(p.id)?.bot && botSnapSlot(g, p.id) !== null);
+    if (!bots.length) return;
+    const bot = bots[Math.floor(this.rng() * bots.length)].id;
+    const { snapMin, snapMax } = this.timing;
+    this.timers.snap = setTimeout(() => {
+      this.timers.snap = null;
+      if (this.game !== g || this.paused || g.snapWin?.card !== win.card || g.snapWin.by) return;
+      const slot = botSnapSlot(g, bot);
+      if (slot === null) return;
+      try {
+        g.snap(bot, { pid: bot, slot });
+      } catch (e) {
+        console.error('bot snap failed', e);
+      }
+      this.afterChange();
+    }, snapMin + this.rng() * (snapMax - snapMin));
+  }
+
   afterChange() {
     // While nobody is connected the clock stops, like a pause.
     const here = this.someoneHere();
@@ -485,6 +517,7 @@ export class Room {
     this.ensureHost();
     this.armTimer();
     this.armBots();
+    this.armBotSnap();
     this.broadcast();
   }
 

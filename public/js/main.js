@@ -42,6 +42,8 @@ const pathCode = (location.pathname.match(/^\/([A-Za-z]{4})\/?$/) || [])[1]?.toU
 const S = {
   view: null,
   ui: { key: '', mode: null, own: [], other: null, caboArmed: 0 },
+  snapMode: null, // { step: 'pick' } or { step: 'give', target } while throwing a card out of turn
+  snapKey: '',
   log: [],
   sheet: null, // { name, data } opened by the player
   hidden: null, // results/game-over sheet tucked away to look at the table
@@ -150,6 +152,12 @@ function syncUi(v, prevGame) {
     S.forced = null;
   }
   if (!g && S.sheet?.name === 'scores') S.sheet = null;
+  // Each fresh discard is its own chance to match; a new one cancels a half-made snap.
+  const snapKey = g?.snap?.open ? `${g.round}:${g.discardCount}:${g.snap.r}` : '';
+  if (snapKey !== S.snapKey) {
+    S.snapKey = snapKey;
+    S.snapMode = null;
+  }
 }
 
 // --------------------------------------------------------------- render
@@ -179,6 +187,24 @@ const ctx = {
   },
   confirmLeave() {
     ctx.confirm({ title: 'Leave this room?', text: '', yes: 'Leave', onYes: () => send('leave') });
+  },
+  startSnap() {
+    unlockAudio();
+    S.snapMode = { step: 'pick' };
+    render();
+  },
+  setSnap(mode) {
+    S.snapMode = mode;
+    render();
+  },
+  cancelSnap() {
+    S.snapMode = null;
+    render();
+  },
+  sendSnap(target) {
+    S.snapMode = null;
+    render();
+    send('snap', { target });
   },
   armCabo() {
     S.ui.caboArmed = Date.now();
@@ -335,6 +361,18 @@ function react(events, v) {
           toast(describe(ev, v), ev.pid === me ? 'error' : 'info');
         } else sfx.place();
         break;
+      case 'snap': {
+        if (ev.result === 'ok') {
+          sfx.place();
+          sfx.ping();
+          if (ev.pid !== me) toast(describe(ev, v), ev.owner === me ? 'warn' : 'info');
+          if (ev.owner === me && ev.pid !== me) haptic([60, 40, 60]);
+        } else {
+          sfx.oops();
+          toast(describe(ev, v), ev.pid === me ? 'error' : 'info');
+        }
+        break;
+      }
       case 'peek':
       case 'spy':
       case 'look':
@@ -449,6 +487,27 @@ function animate(events, before, v) {
         const eb = keyed(kb);
         fly({ from: before.get(ka), to: after.get(kb), card: eb ? eb.cloneNode(true) : backEl(), delay, duration: 600, hide: eb });
         fly({ from: before.get(kb), to: after.get(ka), card: ea ? ea.cloneNode(true) : backEl(), delay, duration: 600, hide: ea });
+        break;
+      }
+      case 'snap': {
+        const key = `s:${ev.owner}:${ev.slot}`;
+        if (ev.result === 'ok') {
+          fly({ from: before.get(key), to: after.get('discard'), card: cardFor(ev.out, 'md'), delay, hide: keyed('discard') });
+          if (ev.gave !== null) {
+            const target = keyed(key);
+            fly({ from: before.get(`s:${ev.pid}:${ev.gave}`), to: after.get(key), card: target ? target.cloneNode(true) : backEl(), delay: delay + 200, hide: target });
+          }
+        } else {
+          keyed(key)?.animate(
+            [{ transform: 'translateX(0)' }, { transform: 'translateX(-5px)' }, { transform: 'translateX(5px)' }, { transform: 'translateX(0)' }],
+            { duration: 300, iterations: 2 },
+          );
+        }
+        for (const i of ev.added ?? []) {
+          const k = `s:${ev.pid}:${i}`;
+          const target = keyed(k);
+          fly({ from: after.get('deck'), to: after.get(k), card: target ? target.cloneNode(true) : backEl(), delay: delay + 250, hide: target });
+        }
         break;
       }
       case 'reshuffle':

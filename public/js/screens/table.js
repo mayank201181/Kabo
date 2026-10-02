@@ -137,6 +137,23 @@ function slotAction(st, p, i, s) {
     else if (g.peek.picks.length < 2) out.tap = () => ctx.send('peekPick', { slot: i });
     return out;
   }
+  const snap = ctx.S.snapMode;
+  if (snap && canSnap(st)) {
+    const busy = t?.stage === 'reveal' && t.reveal.cards.some((x) => x.pid === p.id && x.slot === i);
+    const lockedCaller = !mine && g.rules.lockCaller && g.caboBy === p.id;
+    if (snap.step === 'give') {
+      out.sel = snap.target.pid === p.id && snap.target.slot === i;
+      if (mine && !busy) out.tap = () => ctx.sendSnap({ ...snap.target, give: i });
+      else if (!out.sel) out.dim = true;
+    } else if (busy || lockedCaller || (s.up && s.c && s.c.r !== g.snap.r)) {
+      out.dim = true;
+    } else if (mine) {
+      out.tap = () => ctx.sendSnap({ pid: p.id, slot: i });
+    } else {
+      out.tap = () => ctx.setSnap({ step: 'give', target: { pid: p.id, slot: i } });
+    }
+    return out;
+  }
   if (!st.myTurn || t.stage !== 'decide' || ctx.view.paused) return out;
 
   const locked = g.rules.lockCaller && g.caboBy === p.id;
@@ -200,9 +217,22 @@ function center(st) {
     ),
     h(
       'div.pile.discard',
-      { class: { tap: canTake }, onClick: canTake ? () => ctx.send('takeDiscard') : null },
+      { class: { tap: canTake && !ctx.S.snapMode }, onClick: canTake && !ctx.S.snapMode ? () => ctx.send('takeDiscard') : null },
       g.discardTop ? cardEl(g.discardTop, { size: 'md', key: 'discard' }) : h('div.card.md.empty', { dataset: { key: 'discard' } }),
-      h('span.pile-lbl', 'Discard'),
+      canSnap(st)
+        ? h(
+            'button.snap-btn',
+            {
+              class: { on: Boolean(ctx.S.snapMode) },
+              onClick: (e) => {
+                e.stopPropagation();
+                if (ctx.S.snapMode) ctx.cancelSnap();
+                else ctx.startSnap();
+              },
+            },
+            `Snap ${g.snap.r}!`,
+          )
+        : h('span.pile-lbl', 'Discard'),
     ),
     stage(st),
   );
@@ -294,6 +324,17 @@ function actions(st) {
     );
   }
   if (!me) return bar(hint(t ? `${st.name(t.pid)}'s turn` : 'Players are memorising their cards'));
+  if (ctx.S.snapMode && canSnap(st)) {
+    const sm = ctx.S.snapMode;
+    return bar(
+      hint(
+        sm.step === 'give'
+          ? `Now tap one of your cards to give ${st.name(sm.target.pid)} in its place`
+          : `Tap the ${g.snap.r} you're throwing: yours, or someone else's you know. Wrong or too late = penalty card.`,
+      ),
+      h('button.btn', { onClick: () => ctx.cancelSnap() }, 'Cancel'),
+    );
+  }
   if (v.paused) {
     return bar(
       hint(`${v.members.find((m) => m.id === v.paused.by)?.name ?? 'The host'} paused the game`),
@@ -384,6 +425,12 @@ function decideBar(st, bar, hint) {
     h('button.btn', { onClick: () => ctx.send('discard') }, 'Discard'),
     p && h('button.btn.power', { onClick: () => ctx.setUi({ mode: p, own: [], other: null }) }, `${POWERS[p].icon} ${POWERS[p].name}`),
   );
+}
+
+// You can throw a card on a fresh discard any time in play, unless you called Kabo.
+function canSnap(st) {
+  const { g, me, v } = st;
+  return Boolean(me && g.phase === 'turn' && g.snap?.open && g.rules.snap && g.caboBy !== me.id && !v.paused);
 }
 
 const RANK_NAMES = { A: 'an Ace', J: 'a Jack', Q: 'a Queen', K: 'a King', 8: 'an 8' };

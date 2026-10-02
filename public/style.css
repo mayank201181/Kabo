@@ -978,6 +978,28 @@ h3 {
   color: var(--faint);
 }
 
+.snap-btn {
+  appearance: none;
+  border: none;
+  border-radius: 999px;
+  margin-top: 2px;
+  padding: 3px 10px;
+  min-height: 26px;
+  font: 800 12px/1 system-ui, sans-serif;
+  letter-spacing: 0.03em;
+  color: #04361a;
+  background: #4cd68f;
+  box-shadow: 0 2px 0 #1f8a52;
+  cursor: pointer;
+  white-space: nowrap;
+  animation: throb 1s ease-in-out infinite;
+}
+
+.snap-btn.on {
+  background: #fff;
+  animation: none;
+}
+
 .stage {
   flex: 1;
   min-width: 0;

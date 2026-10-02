@@ -138,3 +138,20 @@ export function botStep(game, pid, rng = Math.random) {
   }
   return false;
 }
+
+// A known card of the bot's own that matches the fresh discard (never a red
+// King, which is worth keeping). Bots only ever match their own cards.
+export function botSnapSlot(game, pid) {
+  const win = game.snapWin;
+  if (!win || (win.by && win.by !== pid) || game.phase !== 'turn' || game.caboBy === pid) return null;
+  const seen = game.known.get(pid);
+  const t = game.turn;
+  const hand = game.player(pid).hand;
+  for (let i = 0; i < hand.length; i++) {
+    const s = hand[i];
+    if (!s || !(s.up || seen.has(s.card.id)) || s.card.r !== win.card.r || cardValue(s.card) <= 0) continue;
+    if (t.stage === 'reveal' && t.reveal.cards.some((x) => x.pid === pid && x.slot === i)) continue;
+    return i;
+  }
+  return null;
+}
