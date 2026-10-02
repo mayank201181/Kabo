@@ -16,7 +16,7 @@ const BOT_NAMES = ['Chitti', 'Jaadoo', 'G.One', 'Robo', 'Bolt', 'Chip', 'Pixel',
 
 export const DEFAULT_SETTINGS = Object.freeze({ ...DEFAULT_RULES, turnTimer: 45 });
 const CHOICES = { target: [50, 100], turnTimer: [0, 30, 45, 60, 90, 120] };
-const SWITCHES = ['reshuffle', 'faceUpPickups', 'redKingPower', 'lockCaller', 'kamikaze', 'snap'];
+const SWITCHES = ['reshuffle', 'takeDiscard', 'faceUpPickups', 'redKingPower', 'lockCaller', 'kamikaze', 'snap'];
 
 const DEFAULT_TIMING = {
   botMin: 900,          // bots pause like people do, so moves can be followed

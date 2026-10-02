@@ -97,8 +97,15 @@ test('swap a drawn card into your hand: old card discarded, new one face-down', 
   assert.equal(g.viewFor('p1').players[0].slots[2].c, undefined);
 });
 
-test('taking the discard: must swap it in, and it stays face-up', () => {
-  const g = rig([['5S', '6S', '7S', '8S'], ['5H', '6H', '7H', '8H']], { deck: ['3D'], discard: ['AH'] });
+test('house rule: you always draw from the deck; picking up the discard is off by default', () => {
+  const g = rig([['5S', '6S'], ['5H', '6H']], { deck: ['3D'], discard: ['AH'] });
+  assert.throws(() => g.takeDiscard('p0'), /always draw from the deck/);
+  assert.equal(g.turn.stage, 'draw');
+  assert.equal(g.discard.length, 1);
+});
+
+test('taking the discard (official rule): must swap it in, and it stays face-up', () => {
+  const g = rig([['5S', '6S', '7S', '8S'], ['5H', '6H', '7H', '8H']], { deck: ['3D'], discard: ['AH'], rules: { takeDiscard: true } });
   g.takeDiscard('p0');
   assert.throws(() => g.discardDrawn('p0'), /must swap/);
   assert.throws(() => g.usePower('p0', {}), GameError);
@@ -108,7 +115,7 @@ test('taking the discard: must swap it in, and it stays face-up', () => {
 });
 
 test('expert mode keeps discard pickups face-down', () => {
-  const g = rig([['5S', '6S', '7S', '8S'], ['5H', '6H', '7H', '8H']], { deck: ['3D'], discard: ['AH'], rules: { faceUpPickups: false } });
+  const g = rig([['5S', '6S', '7S', '8S'], ['5H', '6H', '7H', '8H']], { deck: ['3D'], discard: ['AH'], rules: { faceUpPickups: false, takeDiscard: true } });
   g.takeDiscard('p0');
   g.exchange('p0', [0]);
   assert.deepEqual(g.viewFor('p1').players[0].slots[0], { up: false });
@@ -161,7 +168,7 @@ test('a wrong match turns your card face-up and costs a penalty card', () => {
 });
 
 test('match only works on a card drawn from the deck', () => {
-  const g = rig([['5S', '2C'], ['4C', '6H']], { deck: ['9D'], discard: ['2H'] });
+  const g = rig([['5S', '2C'], ['4C', '6H']], { deck: ['9D'], discard: ['2H'], rules: { takeDiscard: true } });
   g.takeDiscard('p0');
   assert.throws(() => g.match('p0', [1]), /drawn from the deck/);
   g.exchange('p0', [1]);
@@ -232,7 +239,7 @@ test('black King: look at both cards, then choose whether to swap', () => {
 });
 
 test('powers only work from the deck, and invalid targets are rejected without side effects', () => {
-  const g = rig([['5S', '9S', '6H', '8S'], ['4C', '6C', 'AH', '8H']], { deck: ['9H'], discard: ['JS'] });
+  const g = rig([['5S', '9S', '6H', '8S'], ['4C', '6C', 'AH', '8H']], { deck: ['9H'], discard: ['JS'], rules: { takeDiscard: true } });
   g.takeDiscard('p0');
   assert.throws(() => g.usePower('p0', { own: 0, pid: 'p1', slot: 0 }), /from the deck/);
   g.exchange('p0', [0]);
@@ -387,7 +394,7 @@ test('red King power can be switched off', () => {
 });
 
 test('timeouts pass the turn with as little effect as possible', () => {
-  const g = rig([['5S', '6S', '7S', '8S'], ['5H', '6H', '7H', '8H']], { deck: ['2D', '3D', '9D'], discard: ['AC'] });
+  const g = rig([['5S', '6S', '7S', '8S'], ['5H', '6H', '7H', '8H']], { deck: ['2D', '3D', '9D'], discard: ['AC'], rules: { takeDiscard: true } });
   g.autoPlay('p0');
   assert.equal(g.turn.pid, 'p1');
   assert.equal(g.deck.length, 3, 'a pass draws nothing');
@@ -521,7 +528,7 @@ test("snap someone else's card you know, then give them one of yours", () => {
 });
 
 test('snap is closed once the discard is taken, for the Kabo caller, and for locked callers', () => {
-  const g = rig([['5S', '9C'], ['6C', '2S'], ['6H', '3C']], { deck: ['6D', 'AS', 'AH'], rules: { lockCaller: true } });
+  const g = rig([['5S', '9C'], ['6C', '2S'], ['6H', '3C']], { deck: ['6D', 'AS', 'AH'], rules: { lockCaller: true, takeDiscard: true } });
   g.drawDeck('p0');
   g.discardDrawn('p0');
   g.takeDiscard('p1');

@@ -73,7 +73,7 @@ export function botStep(game, pid, rng = Math.random) {
       return true;
     }
     const top = game.discard.at(-1);
-    if (top && cardValue(top) <= 3 && cardValue(top) < worst.v - 1) game.takeDiscard(pid);
+    if (game.rules.takeDiscard && top && cardValue(top) <= 3 && cardValue(top) < worst.v - 1) game.takeDiscard(pid);
     else game.drawDeck(pid);
     return true;
   }

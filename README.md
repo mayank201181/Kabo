@@ -7,8 +7,7 @@ The Kabo (Cabo) memory card game for 2–10 players, played online on phones. On
 - **One 52-card deck.** A = 1, 2–10 = face value, J = 11, Q = 12, K♠ K♣ (hukum, chidi) = 13, K♥ K♦ (paan, eent) = −1.
 - **Deal:** 4 cards face-down each. Look at any 2 once, then remember them.
 - **Your turn**, one of:
-  - Draw from the deck, then keep it (swap it for one of your cards) or discard it.
-  - Take the top discard. You must swap it in, and it stays face-up.
+  - Draw from the deck, then keep it (swap it for one of your cards), match it, or discard it. You always draw from the deck; nobody picks up a card someone else threw away.
   - Call **Kabo**. Everyone else gets one last turn.
 - **Powers** (only for a card drawn from the deck and discarded):
   - 7, 8: peek at one of your cards.
@@ -26,7 +25,7 @@ The Kabo (Cabo) memory card game for 2–10 players, played online on phones. On
   - Landing exactly on the target drops you to half of it, once per game.
 - **Game end:** play to **50** (or 100). The game ends when someone goes over, and the lowest total wins.
 
-The host can switch these in the lobby: target 50/100, turn timer, reshuffle vs. end the round, face-up discard pickups (expert mode keeps them face-down), whether red Kings have the power, locking the Kabo caller's cards, matching out of turn, and Kamikaze.
+The host can switch these in the lobby: target 50/100, turn timer, reshuffle vs. end the round, picking up the top discard (the official rule, off by default) and whether those pickups stay face-up, whether red Kings have the power, locking the Kabo caller's cards, matching out of turn, and Kamikaze.
 
 ## Features
 

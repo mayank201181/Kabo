@@ -112,12 +112,20 @@ export function renderLobby(ctx) {
         ro,
       ),
       toggle(
-        'Discard pickups stay face-up',
-        s.faceUpPickups ? 'Everyone can see cards taken from the discard pile' : 'Expert: every card stays face-down',
-        s.faceUpPickups,
-        (x) => set({ faceUpPickups: x }),
+        'Pick up from the discard pile',
+        s.takeDiscard ? 'Official rule: instead of drawing, you may take the top discard' : 'Everyone always draws from the deck',
+        s.takeDiscard,
+        (x) => set({ takeDiscard: x }),
         ro,
       ),
+      s.takeDiscard &&
+        toggle(
+          'Discard pickups stay face-up',
+          s.faceUpPickups ? 'Everyone can see cards taken from the discard pile' : 'Expert: every card stays face-down',
+          s.faceUpPickups,
+          (x) => set({ faceUpPickups: x }),
+          ro,
+        ),
       toggle(`Red Kings (K${SUIT.H} K${SUIT.D}) can Look & swap`, 'They are worth −1 either way', s.redKingPower, (x) => set({ redKingPower: x }), ro),
       toggle("Lock the caller's cards", "After Kabo, nobody can swap the caller's cards", s.lockCaller, (x) => set({ lockCaller: x }), ro),
       toggle(
