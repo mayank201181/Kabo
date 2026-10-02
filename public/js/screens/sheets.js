@@ -6,7 +6,7 @@ import { isMuted } from '../sound.js';
 import { namer } from '../text.js';
 import { seg, memberRow, TIMER_CHOICES } from './lobby.js';
 
-const DEFAULT_RULES = { target: 50, reshuffle: true, faceUpPickups: true, redKingPower: true, lockCaller: false, kamikaze: true, turnTimer: 45 };
+const DEFAULT_RULES = { target: 50, reshuffle: true, faceUpPickups: true, redKingPower: true, lockCaller: false, kamikaze: true, snap: true, turnTimer: 45 };
 const fmtScore = (n) => (n > 0 ? `+${n}` : n < 0 ? `−${-n}` : '0');
 
 function sheet(ctx, title, body, { closable = true, id = '' } = {}) {
@@ -75,6 +75,12 @@ function rulesSheet(ctx) {
       'p',
       'Drew a card from the deck with the same rank as one of yours, like a 2 when you know you have a 2? Tap Match and throw both on the discard pile, so your hand gets smaller. You can match more than one card at a time. If a card you pick does not match, it is turned face-up and you take a penalty card. Get rid of all your cards and the round ends.',
     ),
+    r.snap && h('h3', 'Matching out of turn (snap)'),
+    r.snap &&
+      h(
+        'p',
+        "Whenever a card lands on the discard pile, anyone can tap Snap and throw a card of the same rank on it, even when it's not their turn. Only the first person gets it: anyone later, or anyone who throws the wrong card, takes a penalty card. You can also throw someone else's card if you know it (say you spied on their 6), and then you give them one of your cards in its place. Once you call Kabo, your cards are final.",
+      ),
     h('h3', 'Scoring'),
     h(
       'ul.rules',

@@ -19,12 +19,13 @@ function randomRules(rng) {
     redKingPower: rng() < 0.5,
     lockCaller: rng() < 0.3,
     kamikaze: rng() < 0.8,
+    snap: rng() < 0.85,
   };
 }
 
 function checkInvariants(g) {
   const cards = [...g.deck, ...g.discard, ...g.players.flatMap((p) => p.hand.filter(Boolean).map((s) => s.card))];
-  if (g.phase === 'turn' && g.turn.stage === 'decide') cards.push(g.turn.drawn);
+  if (g.phase === 'turn' && g.turn.drawn) cards.push(g.turn.drawn);
   const ids = cards.map((c) => c.id);
   assert.equal(new Set(ids).size, ids.length, 'a card is in two places');
   assert.equal(ids.length, 52, 'a card went missing');
@@ -56,8 +57,25 @@ function checkInvariants(g) {
 
 const slotsOf = (p) => p.hand.flatMap((s, i) => (s ? [i] : []));
 
+// Someone (anyone) throws a card on the fresh discard: a real match, a guess,
+// or someone else's card with one of theirs given back.
+function randomSnap(g, rng) {
+  const pick = (arr) => arr[Math.floor(rng() * arr.length)];
+  const me = pick(g.players);
+  const owner = rng() < 0.7 ? me : pick(g.players);
+  const top = g.snapWin?.card;
+  const real = top ? slotsOf(owner).filter((i) => owner.hand[i].card.r === top.r) : [];
+  const slot = real.length && rng() < 0.6 ? pick(real) : pick(slotsOf(owner));
+  try {
+    g.snap(me.id, { pid: owner.id, slot, give: owner === me ? undefined : pick(slotsOf(me)) });
+  } catch (e) {
+    if (!(e instanceof GameError)) throw e;
+  }
+}
+
 function randomMove(g, rng) {
   const pick = (arr) => arr[Math.floor(rng() * arr.length)];
+  if (g.phase === 'turn' && rng() < 0.15) return randomSnap(g, rng);
   if (g.phase === 'peek') {
     const [pid, st] = pick([...g.peek.entries()].filter(([, s]) => !s.ready));
     if (st.picks.length < 2 && rng() < 0.7) {
@@ -118,6 +136,8 @@ function chaos(g, rng) {
     () => g.usePower(pid, junk ?? {}),
     () => g.finishReveal(pid, junk),
     () => g.peekPick(pid, junk),
+    () => g.snap(pid, { pid: pick(g.players).id, slot: junk, give: junk }),
+    () => g.snap(pid, junk ?? {}),
     () => g.nextRound(),
   ];
   try {

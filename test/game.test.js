@@ -463,3 +463,94 @@ test('rename keeps the seat and updates results', () => {
   g.renamePlayer('p1', 'Asha');
   assert.equal(g.viewFor('p0').players[1].name, 'Asha');
 });
+
+// ------------------------------------------------- matching out of turn (snap)
+
+test('snap: the first player to throw a matching card on a fresh discard gets rid of it', () => {
+  const g = rig(
+    [['5S', '9C', '7D', '8H'], ['6C', '2S', '3D', '4H'], ['6H', '2C', '3S', '4D']],
+    { deck: ['6D', 'AS', 'AH'], discard: ['10C'] },
+  );
+  assert.throws(() => g.snap('p1', { pid: 'p1', slot: 0 }), /no fresh discard/, 'nothing to match at the start');
+  g.drawDeck('p0');
+  g.discardDrawn('p0');
+  assert.deepEqual(g.viewFor('p2').snap, { r: '6', open: true, by: null });
+  g.snap('p1', { pid: 'p1', slot: 0 });
+  assert.deepEqual(codes(g.players[1].hand), [null, '2S', '3D', '4H']);
+  assert.equal(g.discard.at(-1).r + g.discard.at(-1).s, '6C');
+  assert.deepEqual(g.viewFor('p2').snap, { r: '6', open: false, by: 'p1' });
+  assert.equal(g.viewFor('p1').snap.open, true, 'the first matcher may still throw another 6');
+  // Too late, even with a real 6: penalty card, nothing revealed.
+  g.snap('p2', { pid: 'p2', slot: 0 });
+  assert.deepEqual(codes(g.players[2].hand), ['6H', '2C', '3S', '4D', 'AS']);
+  assert.equal(g.players[2].hand[0].up, false);
+  assert.equal(ev(g, 'snap')[1].result, 'late');
+  assert.equal(g.turn.pid, 'p1', 'snapping never changes whose turn it is');
+});
+
+test('snap: the first matcher may throw another card of the same rank', () => {
+  const g = rig([['5S', '9C'], ['6C', '6S', '4H']], { deck: ['6D', 'AS'] });
+  g.drawDeck('p0');
+  g.discardDrawn('p0');
+  g.snap('p1', { pid: 'p1', slot: 1 });
+  g.snap('p1', { pid: 'p1', slot: 0 });
+  assert.deepEqual(codes(g.players[1].hand), [null, null, '4H']);
+});
+
+test('snap: a wrong card is turned face-up and costs a penalty card', () => {
+  const g = rig([['5S', '9C'], ['6C', '2S', '4H']], { deck: ['6D', 'AS'] });
+  g.drawDeck('p0');
+  g.discardDrawn('p0');
+  g.snap('p1', { pid: 'p1', slot: 1 });
+  assert.deepEqual(codes(g.players[1].hand), ['6C', '2S', '4H', 'AS']);
+  assert.equal(g.players[1].hand[1].up, true);
+  assert.equal(ev(g, 'snap')[0].result, 'wrong');
+  assert.deepEqual(g.viewFor('p0').snap, { r: '6', open: true, by: null }, 'still open for a real match');
+});
+
+test("snap someone else's card you know, then give them one of yours", () => {
+  const g = rig([['5S', '9C', '7D'], ['6C', '2S', '4H'], ['KS', '3C', 'QD']], { deck: ['6D', 'AS'] });
+  g.drawDeck('p0');
+  g.discardDrawn('p0');
+  assert.throws(() => g.snap('p2', { pid: 'p1', slot: 0 }), /give/, 'you must say which card you give');
+  g.snap('p2', { pid: 'p1', slot: 0, give: 0 });
+  assert.deepEqual(codes(g.players[1].hand), ['KS', '2S', '4H'], 'p1 gets the King in place of the 6');
+  assert.deepEqual(codes(g.players[2].hand), [null, '3C', 'QD']);
+  assert.equal(ev(g, 'snap')[0].gave, 0);
+  assert.equal(g.viewFor('p1').players[1].slots[0].c, undefined, 'the card you are given stays face-down');
+});
+
+test('snap is closed once the discard is taken, for the Kabo caller, and for locked callers', () => {
+  const g = rig([['5S', '9C'], ['6C', '2S'], ['6H', '3C']], { deck: ['6D', 'AS', 'AH'], rules: { lockCaller: true } });
+  g.drawDeck('p0');
+  g.discardDrawn('p0');
+  g.takeDiscard('p1');
+  assert.throws(() => g.snap('p2', { pid: 'p2', slot: 0 }), /no fresh discard/);
+  g.exchange('p1', [1]);
+  // p1 threw the 2S; nobody has a 2. p2 calls Kabo and can no longer match.
+  g.callCabo('p2');
+  g.drawDeck('p0');
+  g.discardDrawn('p0');
+  assert.throws(() => g.snap('p2', { pid: 'p2', slot: 0 }), /final/);
+  assert.throws(() => g.snap('p0', { pid: 'p2', slot: 0, give: 0 }), /locked/);
+});
+
+test("snapping your last card ends the round, even in the middle of someone's turn", () => {
+  const g = rig([['5S', '9C'], ['7C', '2S'], ['6H']], { deck: ['6D', 'AS', 'AH'] });
+  g.drawDeck('p0');
+  g.discardDrawn('p0');
+  g.drawDeck('p1');
+  g.snap('p2', { pid: 'p2', slot: 0 });
+  assert.equal(g.phase, 'roundEnd');
+  assert.equal(g.results.reason, 'empty');
+  assert.equal(g.results.emptied, 'p2');
+  assert.ok(g.discard.some((c) => c.r + c.s === 'AS'), "p1's drawn card goes to the discard pile");
+});
+
+test('snap can be switched off', () => {
+  const g = rig([['5S', '9C'], ['6C', '2S']], { deck: ['6D', 'AS'], rules: { snap: false } });
+  g.drawDeck('p0');
+  g.discardDrawn('p0');
+  assert.equal(g.viewFor('p1').snap, null);
+  assert.throws(() => g.snap('p1', { pid: 'p1', slot: 0 }), /switched off/);
+});

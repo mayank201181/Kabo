@@ -15,6 +15,7 @@ export const DEFAULT_RULES = Object.freeze({
   redKingPower: true,  // red Kings (−1) can also be discarded for Look & Swap
   lockCaller: false,   // after CABO the caller's cards can't be swapped
   kamikaze: true,      // finish with Q, Q, K♠, K♣ → 0 for you, half the target for everyone else
+  snap: true,          // match a fresh discard out of turn (yours or a card you know of someone else's)
 });
 
 export const HAND_SIZE = 4;
@@ -105,6 +106,7 @@ export class Game {
     this.finalTurns = null;
     this.turn = null;
     this.turnCount = 0;
+    this.snapWin = null;
     this.results = null;
     this.peek = new Map(this.players.map((p) => [p.id, { picks: [], ready: false }]));
     this.phase = 'peek';
@@ -165,6 +167,7 @@ export class Game {
     this.needTurn(pid, 'draw');
     this.need(this.discard.length > 0, 'The discard pile is empty');
     const card = this.discard.pop();
+    this.snapWin = null;
     Object.assign(this.turn, { stage: 'decide', drawn: card, from: 'discard' });
     this.emit({ t: 'draw', pid, from: 'discard', c: face(card) });
   }
@@ -189,6 +192,8 @@ export class Game {
     const old = p.hand[slot].card;
     this.toDiscard(old);
     p.hand[slot] = { card: drawn, up: from === 'discard' && this.rules.faceUpPickups };
+    this.turn.drawn = null;
+    this.openSnap();
     const extra = from === 'discard' ? { c: face(drawn) } : {};
     this.emit({ t: 'exchange', pid, slots: [slot], into: slot, from, out: [face(old)], ...extra });
     this.endTurn();
@@ -217,12 +222,10 @@ export class Game {
       this.knowAll(p.hand[i].card);
     }
     this.toDiscard(drawn);
-    while (p.hand.length && p.hand.at(-1) === null) p.hand.pop();
-    const added = [];
-    for (let k = 0; k < misses.length && this.refillDeck(); k++) {
-      p.hand.push({ card: this.deck.pop(), up: false });
-      added.push(p.hand.length - 1);
-    }
+    this.turn.drawn = null;
+    this.openSnap();
+    this.trimHand(p);
+    const added = misses.flatMap(() => this.penalize(p));
     this.emit({ t: 'match', pid, c: face(drawn), hits, out, misses, shown, added });
     // Got rid of every card: the round is over.
     if (p.hand.every((s) => s === null)) return this.endRound('empty', pid);
@@ -234,6 +237,8 @@ export class Game {
     this.need(this.turn.from === 'deck', 'You took that card from the discard pile, so you must swap it in');
     const card = this.turn.drawn;
     this.toDiscard(card);
+    this.turn.drawn = null;
+    this.openSnap();
     this.emit({ t: 'discard', pid, c: face(card) });
     this.endTurn();
   }
@@ -263,6 +268,8 @@ export class Game {
     }
 
     this.toDiscard(drawn);
+    this.turn.drawn = null;
+    this.openSnap();
     this.emit({ t: 'power', pid, power, c: face(drawn) });
 
     if (power === 'swap') {
@@ -315,6 +322,7 @@ export class Game {
       this.discardDrawn(pid);
     } else if (stage === 'decide') {
       this.discard.push(drawn);
+      this.turn.drawn = null;
       this.emit({ t: 'putback', pid, c: face(drawn) });
       this.endTurn();
     } else {
@@ -358,11 +366,87 @@ export class Game {
     return true;
   }
 
+  // ---------------------------------------------------- matching out of turn
+
+  // A card just discarded in play can be matched by anyone, out of turn.
+  openSnap() {
+    this.snapWin = this.rules.snap ? { card: this.discard.at(-1), by: null } : null;
+  }
+
+  // Throw a card on the fresh discard. target: { pid, slot } is the card
+  // thrown (yours, or someone else's that you know), plus { give } for one of
+  // your cards to put in its place when it isn't yours. The first player to
+  // match wins; anyone later, or with the wrong card, takes a penalty card.
+  snap(pid, target = {}) {
+    this.need(this.rules.snap, 'Matching out of turn is switched off');
+    this.need(this.phase === 'turn', 'You can only match while the round is in play');
+    const me = this.player(pid);
+    this.need(this.caboBy !== pid, 'You called Kabo, so your cards are final');
+    const win = this.snapWin;
+    this.need(win, 'There is no fresh discard to match');
+    const owner = this.players.find((p) => p.id === target.pid);
+    this.need(owner && this.ownSlot(owner, target.slot), 'Pick the card you want to match');
+    const theirs = owner.id !== pid;
+    if (theirs) {
+      this.need(!(this.rules.lockCaller && this.caboBy === owner.id), `${owner.name} called Kabo, so their cards are locked`);
+      this.need(this.ownSlot(me, target.give), `Pick one of your cards to give ${owner.name}`);
+    }
+    const t = this.turn;
+    const inUse = (who, slot) => t.stage === 'reveal' && t.reveal.cards.some((x) => x.pid === who && x.slot === slot);
+    this.need(!inUse(owner.id, target.slot) && !(theirs && inUse(pid, target.give)), 'That card is being looked at right now');
+
+    const base = { t: 'snap', pid, owner: owner.id, slot: target.slot, c: face(win.card) };
+    // Whoever matched first may throw more of the same rank; anyone else is too late.
+    if (win.by && win.by !== pid) {
+      this.emit({ ...base, result: 'late', added: this.penalize(me) });
+      return this.checkDeck();
+    }
+    const card = owner.hand[target.slot].card;
+    if (card.r !== win.card.r) {
+      owner.hand[target.slot].up = true;
+      this.knowAll(card);
+      this.emit({ ...base, result: 'wrong', shown: face(card), added: this.penalize(me) });
+      return this.checkDeck();
+    }
+    this.toDiscard(card);
+    win.by = pid;
+    owner.hand[target.slot] = null;
+    let gave = null;
+    if (theirs) {
+      owner.hand[target.slot] = me.hand[target.give];
+      me.hand[target.give] = null;
+      gave = target.give;
+    }
+    this.trimHand(me);
+    this.emit({ ...base, result: 'ok', out: face(card), gave });
+    if (me.hand.every((x) => x === null)) this.endRound('empty', pid);
+  }
+
+  // A penalty can take the last card out of turn; if it can't be refilled, the round is over.
+  checkDeck() {
+    if (this.phase === 'turn' && !this.refillDeck()) this.endRound('deck');
+  }
+
+  trimHand(p) {
+    while (p.hand.length && p.hand.at(-1) === null) p.hand.pop();
+  }
+
+  // One unseen card from the deck; returns the new slot (none if the deck is gone).
+  penalize(p) {
+    if (!this.refillDeck()) return [];
+    this.trimHand(p);
+    p.hand.push({ card: this.deck.pop(), up: false });
+    return [p.hand.length - 1];
+  }
+
   // ---------------------------------------------------------------- scoring
 
   endRound(reason, emptied = null) {
+    // A snap can end the round in the middle of someone's turn.
+    if (this.turn?.drawn) this.toDiscard(this.turn.drawn);
     this.phase = 'roundEnd';
     this.turn = null;
+    this.snapWin = null;
     const { target, kamikaze } = this.rules;
     const rows = this.players.map((p) => {
       const cards = p.hand.filter(Boolean).map((s) => s.card);
@@ -457,7 +541,11 @@ export class Game {
     if (this.startPid === pid && this.players.length > 1) {
       this.startPid = this.players[(idx + 1) % this.players.length].id;
     }
-    if (wasTurn && t.stage === 'decide') this.toDiscard(t.drawn);
+    if (wasTurn && t.drawn) {
+      this.toDiscard(t.drawn);
+      t.drawn = null;
+      this.snapWin = null;
+    }
     const cards = p.hand.filter(Boolean).map((s) => s.card);
     this.discard.unshift(...cards);
     for (const c of cards) this.knowAll(c);
@@ -526,6 +614,10 @@ export class Game {
             }
           : null,
       peek: peekSt ? { picks: [...peekSt.picks], ready: peekSt.ready } : null,
+      snap:
+        this.phase === 'turn' && this.snapWin
+          ? { r: this.snapWin.card.r, open: !this.snapWin.by || this.snapWin.by === viewer, by: this.snapWin.by }
+          : null,
       results: this.results,
       winners: this.winners,
     };
