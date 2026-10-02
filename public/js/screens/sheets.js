@@ -6,7 +6,7 @@ import { isMuted } from '../sound.js';
 import { namer } from '../text.js';
 import { seg, memberRow, TIMER_CHOICES } from './lobby.js';
 
-const DEFAULT_RULES = { target: 50, reshuffle: true, faceUpPickups: true, redKingPower: true, lockCaller: false, kamikaze: true, snap: true, turnTimer: 45 };
+const DEFAULT_RULES = { target: 50, reshuffle: true, takeDiscard: false, faceUpPickups: true, redKingPower: true, lockCaller: false, kamikaze: true, snap: true, turnTimer: 45 };
 const fmtScore = (n) => (n > 0 ? `+${n}` : n < 0 ? `−${-n}` : '0');
 
 function sheet(ctx, title, body, { closable = true, id = '' } = {}) {
@@ -50,14 +50,16 @@ function rulesSheet(ctx) {
     h('h3', 'Start of a round'),
     h('p', 'Everyone gets 4 cards face-down. Look at any 2 of them once, then remember them. Cards stay in their places unless someone swaps them.'),
     h('h3', 'On your turn, do one of these'),
+    !r.takeDiscard && h('p', "You always draw from the deck. Nobody picks up a card someone else threw away."),
     h(
       'ol.rules',
       h('li', h('b', 'Draw from the deck. '), 'Keep it by swapping it for one of your cards, match it, or discard it.'),
-      h(
-        'li',
-        h('b', 'Take the top discard. '),
-        `You must swap it for one of your cards${r.faceUpPickups ? ', and it stays face-up' : ''}.`,
-      ),
+      r.takeDiscard &&
+        h(
+          'li',
+          h('b', 'Take the top discard. '),
+          `You must swap it for one of your cards${r.faceUpPickups ? ', and it stays face-up' : ''}.`,
+        ),
       h('li', h('b', 'Call Kabo. '), 'Everyone else gets one more turn, then all cards are shown.'),
     ),
     h('h3', 'Powers'),

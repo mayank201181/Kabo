@@ -106,7 +106,7 @@ function chooseMove(v) {
   switch (g.turn.stage) {
     case 'draw':
       if (!g.caboBy && r < 0.12) return { type: 'cabo' };
-      if (g.discardTop && r < 0.35) return { type: 'takeDiscard' };
+      if (g.rules.takeDiscard && g.discardTop && r < 0.35) return { type: 'takeDiscard' };
       return { type: 'drawDeck' };
     case 'decide': {
       if (g.turn.from === 'discard') return { type: 'exchange', slots: [own[0]] };
@@ -166,7 +166,7 @@ test('create, join, change rules, start and play a full round', async () => {
   assert.equal(a.view.host, a.view.me);
   const notHost = await b.cmd('settings', { settings: { target: 100 } });
   assert.equal(notHost.ok, false);
-  assert.ok((await a.cmd('settings', { settings: { target: 100, turnTimer: 0, kamikaze: false, bogus: 1, reshuffle: 'yes' } })).ok);
+  assert.ok((await a.cmd('settings', { settings: { target: 100, turnTimer: 0, kamikaze: false, takeDiscard: true, bogus: 1, reshuffle: 'yes' } })).ok);
   await b.until((v) => v.settings.target === 100);
   assert.equal(b.view.settings.turnTimer, 0);
   assert.equal(b.view.settings.kamikaze, false);

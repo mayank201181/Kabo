@@ -20,6 +20,7 @@ function randomRules(rng) {
     lockCaller: rng() < 0.3,
     kamikaze: rng() < 0.8,
     snap: rng() < 0.85,
+    takeDiscard: rng() < 0.5,
   };
 }
 
@@ -93,7 +94,7 @@ function randomMove(g, rng) {
   if (rng() < 0.02) return g.autoPlay(pid);
   if (stage === 'draw') {
     if (!g.caboBy && rng() < 0.06) return g.callCabo(pid);
-    if (g.discard.length && rng() < 0.3) return g.takeDiscard(pid);
+    if (g.rules.takeDiscard && g.discard.length && rng() < 0.3) return g.takeDiscard(pid);
     return g.drawDeck(pid);
   }
   if (stage === 'decide') {

@@ -11,6 +11,7 @@ export class GameError extends Error {}
 export const DEFAULT_RULES = Object.freeze({
   target: 50,          // the game ends once someone goes over this
   reshuffle: true,     // empty deck → reshuffle the discard pile (house rule); off = round ends (official)
+  takeDiscard: false,  // official: you may pick up the top discard instead of drawing; house rule: always draw from the deck
   faceUpPickups: true, // cards taken from the discard pile stay face-up; off = expert mode
   redKingPower: true,  // red Kings (−1) can also be discarded for Look & Swap
   lockCaller: false,   // after CABO the caller's cards can't be swapped
@@ -165,6 +166,7 @@ export class Game {
 
   takeDiscard(pid) {
     this.needTurn(pid, 'draw');
+    this.need(this.rules.takeDiscard, 'In this game you always draw from the deck');
     this.need(this.discard.length > 0, 'The discard pile is empty');
     const card = this.discard.pop();
     this.snapWin = null;

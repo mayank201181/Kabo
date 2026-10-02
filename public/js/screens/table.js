@@ -205,7 +205,7 @@ function slotAction(st, p, i, s) {
 function center(st) {
   const { ctx, g, t } = st;
   const canDraw = st.myTurn && t.stage === 'draw' && !st.v.paused;
-  const canTake = canDraw && g.discardTop;
+  const canTake = canDraw && g.rules.takeDiscard && g.discardTop;
   return h(
     'section.center',
     h(
@@ -278,7 +278,10 @@ function stage(st) {
   return h(
     'div.stage.msg',
     st.myTurn
-      ? [h('b', 'Your turn!'), h('span', g.discardTop ? `Draw a card, take the ${cardText(g.discardTop)}, or call Kabo` : 'Draw a card or call Kabo')]
+      ? [
+          h('b', 'Your turn!'),
+          h('span', g.rules.takeDiscard && g.discardTop ? `Draw a card, take the ${cardText(g.discardTop)}, or call Kabo` : 'Draw a card from the deck, or call Kabo'),
+        ]
       : [h('b', `${name(t.pid)}'s turn`), h('span', 'Choosing…')],
   );
 }
@@ -360,7 +363,7 @@ function actions(st) {
     const armed = st.ui.caboArmed && Date.now() - st.ui.caboArmed < 3000;
     return bar(
       h('button.btn.primary', { onClick: () => ctx.send('drawDeck') }, 'Draw'),
-      g.discardTop && h('button.btn', { onClick: () => ctx.send('takeDiscard') }, `Take ${cardText(g.discardTop)}`),
+      g.rules.takeDiscard && g.discardTop && h('button.btn', { onClick: () => ctx.send('takeDiscard') }, `Take ${cardText(g.discardTop)}`),
       !g.caboBy &&
         h(
           'button.btn.cabo',
