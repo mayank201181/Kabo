@@ -22,6 +22,7 @@ const DEFAULT_TIMING = {
   botMin: 900,          // bots pause like people do, so moves can be followed
   botMax: 1700,
   offlineGrace: 30_000, // an offline player's turn is passed after this long
+  offlineQuick: 5_000,  // ...or this long once they've already missed a turn while away
   hostGrace: 30_000,    // an offline host hands over after this long
   peekMin: 30_000,      // the opening peek never gets less than this
   revealMax: 20_000,    // time to look at peeked/spied cards
@@ -95,7 +96,7 @@ export class Room {
     } else {
       need(this.members.size < MAX_MEMBERS, 'This room is full');
       const seat = !this.game && this.seated().length < MAX_SEATS;
-      m = { id: newId(), name: this.uniqueName(name), token, bot: false, seat, sockets: new Set(), connected: false, offlineSince: null };
+      m = { id: newId(), name: this.uniqueName(name), token, bot: false, seat, sockets: new Set(), connected: false, offlineSince: null, skipped: false };
       this.members.set(m.id, m);
       this.order.push(m.id);
       if (!this.hostId) this.hostId = m.id;
@@ -113,6 +114,7 @@ export class Room {
     this.sockets.set(socket.id, socket);
     m.connected = true;
     m.offlineSince = null;
+    m.skipped = false;
   }
 
   detach(socket) {
@@ -135,7 +137,7 @@ export class Room {
     need(this.members.size < MAX_MEMBERS, 'This room is full');
     const used = new Set(this.list().map((m) => m.name));
     const name = BOT_NAMES.find((n) => !used.has(n)) ?? `Bot ${this.members.size + 1}`;
-    const m = { id: newId(), name, token: null, bot: true, seat: true, sockets: new Set(), connected: true, offlineSince: null };
+    const m = { id: newId(), name, token: null, bot: true, seat: true, sockets: new Set(), connected: true, offlineSince: null, skipped: false };
     this.members.set(m.id, m);
     this.order.push(m.id);
     this.push({ t: 'join', pid: m.id, name, bot: true });
@@ -218,6 +220,17 @@ export class Room {
         need(t.id !== mid, 'Use “Leave room” to leave');
         return this.remove(t, 'kicked');
       }
+      case 'removeFromGame': {
+        needHost();
+        need(g && g.phase !== 'gameOver', 'No game is running');
+        const t = this.members.get(cmd.id);
+        need(t && g.has(t.id), 'That player is no longer in this game');
+        need(!t.connected, `${t.name} is back online`);
+        g.removePlayer(t.id);
+        this.claims = this.claims.filter((c) => c.seat !== t.id);
+        this.push({ t: 'benched', pid: t.id, name: t.name });
+        return;
+      }
       case 'makeHost': {
         needHost();
         const t = this.members.get(cmd.id);
@@ -246,7 +259,8 @@ export class Room {
       case 'resume':
         needHost();
         if (this.paused) {
-          this.stage.at += Date.now() - this.paused.at;
+          // A stage that began during the pause (e.g. a player was removed) gets its full time.
+          this.stage.at += Date.now() - Math.max(this.paused.at, this.stage.at);
           this.paused = null;
           this.push({ t: 'resume', pid: mid });
         }
@@ -256,8 +270,8 @@ export class Room {
         need(g, 'No game is running');
         need(!this.paused, 'The game is paused');
         if (g.phase === 'peek') {
-          for (const [id, st] of [...g.peek]) if (g.phase === 'peek' && !st.ready) g.autoPlay(id);
-        } else if (g.phase === 'turn') g.autoPlay(g.turn.pid);
+          for (const [id, st] of [...g.peek]) if (g.phase === 'peek' && !st.ready) this.pass(id);
+        } else if (g.phase === 'turn') this.pass(g.turn.pid);
         return;
       case 'claim':
         return this.claim(m, cmd.seat);
@@ -366,6 +380,7 @@ export class Room {
     }
     seat.connected = seat.sockets.size > 0;
     seat.offlineSince = seat.connected ? null : Date.now();
+    seat.skipped = false;
     this.members.delete(from.id);
     this.order = this.order.filter((x) => x !== from.id);
     this.claims = this.claims.filter((x) => x.from !== from.id && x.seat !== seat.id);
@@ -382,12 +397,18 @@ export class Room {
     return `${g.round}:${g.phase}`;
   }
 
+  // How long an offline player gets: the full grace the first time, then
+  // only a moment while they stay away.
+  grace(m) {
+    return m.skipped ? this.timing.offlineQuick : this.timing.offlineGrace;
+  }
+
   peekDeadline(pid) {
     const m = this.members.get(pid);
     if (!m || m.bot) return Infinity;
     const T = this.settings.turnTimer * 1000;
     let at = T ? this.stage.at + Math.max(T, this.timing.peekMin) : Infinity;
-    if (!m.connected) at = Math.min(at, Math.max(this.stage.at, m.offlineSince) + this.timing.offlineGrace);
+    if (!m.connected) at = Math.min(at, Math.max(this.stage.at, m.offlineSince) + this.grace(m));
     return at;
   }
 
@@ -408,8 +429,9 @@ export class Room {
     const limit = T ? (g.turn.stage === 'reveal' ? Math.min(T, this.timing.revealMax) : T) : Infinity;
     let d = { at: this.stage.at + limit, pid, total: limit, reason: 'turn' };
     if (!m.connected) {
-      const off = Math.max(this.stage.at, m.offlineSince) + this.timing.offlineGrace;
-      if (off < d.at) d = { at: off, pid, total: this.timing.offlineGrace, reason: 'offline' };
+      const grace = this.grace(m);
+      const off = Math.max(this.stage.at, m.offlineSince) + grace;
+      if (off < d.at) d = { at: off, pid, total: grace, reason: 'offline' };
     }
     return Number.isFinite(d.at) ? d : null;
   }
@@ -429,16 +451,24 @@ export class Room {
     try {
       if (g.phase === 'peek') {
         for (const [pid, st] of [...g.peek]) {
-          if (g.phase === 'peek' && !st.ready && this.peekDeadline(pid) <= now) g.autoPlay(pid);
+          if (g.phase === 'peek' && !st.ready && this.peekDeadline(pid) <= now) this.pass(pid);
         }
       } else if (g.phase === 'turn') {
         const d = this.deadline();
-        if (d && d.at <= now) g.autoPlay(d.pid);
+        if (d && d.at <= now) this.pass(d.pid);
       }
     } catch (e) {
       console.error('timeout handling failed', e);
     }
     this.afterChange();
+  }
+
+  // Pass someone's turn (or opening peek). Missing one while offline marks
+  // them as away, so their next turns pass quickly until they're back.
+  pass(pid) {
+    const m = this.members.get(pid);
+    if (m && !m.bot && !m.connected) m.skipped = true;
+    this.game.autoPlay(pid);
   }
 
   armBots() {

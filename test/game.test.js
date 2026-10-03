@@ -450,6 +450,28 @@ test('removing the CABO caller still lets the final lap finish', () => {
   assert.equal(g.results.rows.length, 2);
 });
 
+test("removing a player whose card is being spied on ends the spy's turn", () => {
+  const g = rig([['5S', '6S', '7S', '8S'], ['5H', '6H', '7H', '8H'], ['5C', '6C', '7C', '8C']], { deck: ['9D', '3D'] });
+  g.drawDeck('p0');
+  g.usePower('p0', { pid: 'p2', slot: 1 });
+  g.removePlayer('p2');
+  assert.equal(g.turn.pid, 'p1');
+  assert.equal(g.turn.stage, 'draw');
+});
+
+test('removing a player during a Look & Swap leaves just a look at your own card', () => {
+  const g = rig([['5S', '6S', '7S', '8S'], ['5H', '6H', '7H', '8H'], ['5C', '6C', '7C', '8C']], { deck: ['KS', '3D'] });
+  g.drawDeck('p0');
+  g.usePower('p0', { own: 0, pid: 'p2', slot: 1 });
+  g.removePlayer('p2');
+  assert.equal(g.turn.stage, 'reveal');
+  assert.deepEqual(g.viewFor('p0').turn.reveal.cards, [{ pid: 'p0', slot: 0 }]);
+  g.finishReveal('p0', true);
+  assert.deepEqual(codes(g.players[0].hand), ['5S', '6S', '7S', '8S'], 'nothing left to swap with');
+  assert.equal(ev(g, 'noswap').length, 1);
+  assert.equal(g.turn.pid, 'p1');
+});
+
 test('next round: lowest scorer of the last round starts', () => {
   const g = rig([['9S', '9H'], ['AH', '2H'], ['AC', '2C']], { deck: ['5D', '6D', '7D'], discard: ['3C'], start: 0 });
   g.callCabo('p0');

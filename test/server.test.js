@@ -11,7 +11,7 @@ let srv;
 let url;
 
 before(async () => {
-  srv = createApp({ timing: { botMin: 5, botMax: 15, offlineGrace: 400, hostGrace: 300, peekMin: 400, revealMax: 400 } });
+  srv = createApp({ timing: { botMin: 5, botMax: 15, offlineGrace: 400, offlineQuick: 60, hostGrace: 300, peekMin: 400, revealMax: 400 } });
   await new Promise((r) => srv.server.listen(0, r));
   url = `http://localhost:${srv.server.address().port}`;
 });
@@ -267,6 +267,83 @@ test('the host hands over when offline, can kick, pause and resume', async () =>
   await b.until((v) => v.host === v.me, 3000);
   assert.ok((await b.cmd('skip')).ok);
   b.close();
+});
+
+test('the host can take an offline player out of the game; back online, they watch', async () => {
+  const a = new Client('Host');
+  const b = new Client('Stays');
+  const c = new Client('Leaves');
+  const { code } = await a.create();
+  await b.join(code);
+  await c.join(code);
+  await a.until((v) => v.members.length === 3);
+  await a.cmd('start');
+  await c.until((v) => v.game?.phase === 'peek');
+  const gone = c.view.me;
+  for (const x of [a, b, c]) await x.cmd('peekReady');
+  await a.until((v) => v.game.phase === 'turn');
+
+  const early = await a.cmd('removeFromGame', { id: gone });
+  assert.equal(early.ok, false, 'only players who are offline');
+  assert.match(early.error, /back online/);
+  c.close();
+  await a.until((v) => v.members.find((m) => m.id === gone)?.connected === false);
+  assert.equal((await b.cmd('removeFromGame', { id: gone })).ok, false, 'only the host');
+  assert.ok((await a.cmd('removeFromGame', { id: gone })).ok);
+  await b.until((v) => v.game.players.length === 2);
+  assert.ok(a.events.some((e) => e.t === 'benched' && e.pid === gone));
+  assert.ok(b.view.members.some((m) => m.id === gone && !m.playing), 'still in the room');
+  assert.equal((await a.cmd('removeFromGame', { id: gone })).ok, false);
+
+  c.connect();
+  assert.ok((await c.emit('rejoin', { code, token: c.token })).ok);
+  await c.until((v) => v.game?.phase === 'turn');
+  assert.equal(c.view.me, gone);
+  assert.ok(!c.view.game.players.some((p) => p.id === gone), 'watching now');
+  assert.equal((await c.cmd('drawDeck')).ok, false);
+  for (const x of [a, b, c]) x.close();
+});
+
+test('once an offline player has missed a turn, their next turns pass quickly until they are back', async () => {
+  const a = new Client('Host');
+  const b = new Client('Away');
+  const { code } = await a.create();
+  await b.join(code);
+  await a.until((v) => v.members.length === 2);
+  await a.cmd('settings', { settings: { turnTimer: 0 } }); // only the offline clock runs
+  await a.cmd('start');
+  await b.until((v) => v.game?.phase === 'peek');
+  const seat = b.view.me;
+  const clocks = [];
+  a.socket.on('state', ({ view }) => {
+    if (view.timer?.pid === seat && view.timer.reason === 'offline') clocks.push(view.timer.total);
+  });
+  const missed = () => a.events.filter((e) => e.t === 'timeout' && e.pid === seat).length;
+  // Play the host's turns (draw and discard) until the away player has missed `n` turns.
+  const playUntilMissed = async (n) => {
+    const t0 = Date.now();
+    while (missed() < n) {
+      assert.ok(Date.now() - t0 < 8000, 'turns did not pass');
+      const g = a.view.game;
+      if (g.phase === 'turn' && g.turn.pid === a.view.me) await a.cmd(g.turn.stage === 'draw' ? 'drawDeck' : 'discard');
+      await sleep(5);
+    }
+  };
+
+  b.close();
+  await a.until((v) => v.members.find((m) => m.id === seat)?.connected === false);
+  await a.cmd('peekReady'); // the away player's opening peek passes after the full grace
+  await playUntilMissed(2);
+  assert.ok(clocks.length >= 1 && clocks.every((ms) => ms === 60), `clocks: ${clocks}`);
+
+  b.connect();
+  assert.ok((await b.emit('rejoin', { code, token: b.token })).ok);
+  await a.until((v) => v.members.find((m) => m.id === seat)?.connected === true);
+  b.close();
+  await a.until((v) => v.members.find((m) => m.id === seat)?.connected === false);
+  await playUntilMissed(3);
+  assert.equal(clocks.at(-1), 400, 'back to the full grace after reconnecting');
+  a.close();
 });
 
 test('someone watching can take over an offline seat if the host agrees', async () => {

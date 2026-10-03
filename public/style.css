@@ -879,7 +879,9 @@ h3 {
   background: rgba(226, 85, 44, 0.16);
 }
 
-.opp.off {
+/* Dim the cards of someone who is offline, but not the host's Remove button. */
+.opp.off .opp-top,
+.opp.off .minis {
   opacity: 0.62;
 }
 
@@ -931,6 +933,20 @@ h3 {
 
 .opp-state.off {
   color: #ffbca9;
+}
+
+.opp-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+}
+
+.opp-foot .mini-btn,
+.status .mini-btn {
+  padding: 2px 9px;
+  font-size: 11.5px;
 }
 
 .center {
