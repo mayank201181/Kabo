@@ -55,6 +55,7 @@ function opponent(st, p) {
   const { v, g, t } = st;
   const m = v.members.find((x) => x.id === p.id);
   const cabo = g.caboBy === p.id;
+  const away = m && !m.connected && !m.bot;
   return h(
     'div.opp',
     { class: { turn: t?.pid === p.id, cabo, off: m && !m.connected } },
@@ -67,9 +68,28 @@ function opponent(st, p) {
       h('span.pts', String(p.total)),
     ),
     h('div.minis', p.slots.map((s, i) => slotEl(st, p, i, s, 'sm'))),
-    g.phase === 'peek' && h('span.opp-state', p.ready ? 'ready' : 'memorising…'),
-    m && !m.connected && !m.bot && h('span.opp-state.off', 'offline'),
+    g.phase === 'peek' && !away && h('span.opp-state', p.ready ? 'ready' : 'memorising…'),
+    away &&
+      h(
+        'div.opp-foot',
+        h('span.opp-state.off', 'offline'),
+        st.isHost && g.phase !== 'gameOver' && h('button.mini-btn.danger', { onClick: () => confirmRemove(st, p) }, 'Remove'),
+      ),
   );
+}
+
+// The host takes someone who left out of the game, so nobody waits for their turns.
+function confirmRemove(st, p) {
+  const { ctx, g } = st;
+  ctx.confirm({
+    title: `Remove ${p.name} from this game?`,
+    text:
+      g.players.length <= 2
+        ? 'Only one player would be left, so the game ends here.'
+        : 'Their cards go out of play and the game carries on without them. If they come back, they can watch and play the next game.',
+    yes: 'Remove',
+    onYes: () => ctx.send('removeFromGame', { id: p.id }),
+  });
 }
 
 function hand(st) {
@@ -272,7 +292,7 @@ function stage(st) {
       const label = x.pid === v.me ? `Your card ${x.slot + 1}` : `${p?.name ?? '?'}'s card ${x.slot + 1}`;
       return h('div.shown', s?.c ? cardEl(s.c, { size: 'md', rules: g.rules, extra: 'seen' }) : backEl({ size: 'md' }), h('small', label));
     });
-    const cap = st.myTurn ? (t.reveal.power === 'lookswap' ? 'Swap them?' : 'Remember it!') : `${name(t.pid)}: ${P.name}`;
+    const cap = st.myTurn ? (canSwap(t) ? 'Swap them?' : 'Remember it!') : `${name(t.pid)}: ${P.name}`;
     return h('div.stage.reveal', h('div.shown-row', shown), h('div.cap', h('b', `${P.icon} ${cap}`)));
   }
   return h(
@@ -306,6 +326,9 @@ function status(st) {
         h('span.secs', `${Math.ceil(timer.left / 1000)}s`),
       ),
     );
+    // Waiting on someone who left: the host can take them out right here.
+    const away = timer.reason === 'offline' && st.isHost ? g.players.find((p) => p.id === timer.pid) : null;
+    if (away) kids.push(h('button.mini-btn.danger', { onClick: () => confirmRemove(st, away) }, 'Remove'));
   } else if (v.paused) {
     kids.push(h('span.paused-flag', '⏸ Paused'));
   }
@@ -313,6 +336,9 @@ function status(st) {
 }
 
 // ------------------------------------------------------------- buttons
+
+// Look & Swap needs both cards (the other player may have been removed meanwhile).
+const canSwap = (t) => t.reveal.power === 'lookswap' && t.reveal.cards.length === 2;
 
 function actions(st) {
   const { ctx, g, t, v, me } = st;
@@ -373,7 +399,7 @@ function actions(st) {
     );
   }
   if (t.stage === 'decide') return decideBar(st, bar, hint);
-  if (t.reveal.power === 'lookswap') {
+  if (canSwap(t)) {
     return bar(
       h('button.btn.primary', { onClick: () => ctx.send('reveal', { swap: true }) }, 'Swap them'),
       h('button.btn', { onClick: () => ctx.send('reveal', { swap: false }) }, 'Keep as is'),

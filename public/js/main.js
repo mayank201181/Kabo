@@ -411,6 +411,7 @@ function react(events, v) {
         break;
       case 'left':
       case 'kicked':
+      case 'benched':
       case 'host':
       case 'pause':
       case 'resume':

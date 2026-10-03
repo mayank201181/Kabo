@@ -292,7 +292,8 @@ export class Game {
     this.needTurn(pid, 'reveal');
     const { power, cards } = this.turn.reveal;
     if (power === 'lookswap') {
-      if (doSwap) {
+      // Only one card left if the other player was removed while you looked.
+      if (doSwap && cards.length === 2) {
         this.swapSlots(cards[0], cards[1]);
         this.emit({ t: 'swap', pid, a: cards[0], b: cards[1], blind: false });
       } else {
@@ -565,6 +566,11 @@ export class Game {
       if (!this.refillDeck()) return this.endRound('deck');
       if (next && next !== pid && this.has(next)) return this.startTurn(next);
       return this.endRound('cabo');
+    }
+    // Someone was looking at their card: it's gone, and with nothing left to see the turn ends.
+    if (t.stage === 'reveal') {
+      t.reveal.cards = t.reveal.cards.filter((x) => x.pid !== pid);
+      if (!t.reveal.cards.length) this.endTurn();
     }
   }
 

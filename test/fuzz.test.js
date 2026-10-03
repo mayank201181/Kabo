@@ -156,7 +156,8 @@ test('random games keep every invariant', () => {
     const g = new Game(players(n), randomRules(rng), { rng });
     for (let step = 0; step < 4000 && g.phase !== 'gameOver'; step++) {
       if (rng() < 0.15) chaos(g, rng);
-      else if (rng() < 0.004 && g.players.length > 2) g.removePlayer(g.players[Math.floor(rng() * g.players.length)].id);
+      // Players leave now and then, more often while someone is looking at a card.
+      else if (rng() < (g.turn?.stage === 'reveal' ? 0.1 : 0.004) && g.players.length > 2) g.removePlayer(g.players[Math.floor(rng() * g.players.length)].id);
       else randomMove(g, rng);
       checkInvariants(g);
     }

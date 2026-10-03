@@ -62,6 +62,7 @@ export function describe(ev, v) {
     case 'join': return ev.bot ? `${ev.name} (computer) joined` : ev.watching ? `${ev.name} is watching` : `${ev.name} joined`;
     case 'left': return `${ev.name} left`;
     case 'kicked': return `${ev.name} was removed by the host`;
+    case 'benched': return ev.pid === v.me ? 'The host took you out of this game' : `${ev.name} was taken out of this game by the host`;
     case 'host': return ev.pid === v.me ? 'You are now the host' : `${N} is now the host`;
     case 'pause': return `${N} paused the game`;
     case 'resume': return `${N} resumed the game`;

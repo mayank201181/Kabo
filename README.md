@@ -32,8 +32,8 @@ The host can switch these in the lobby: target 50/100, turn timer, reshuffle vs.
 - **Rooms:** 4-letter room codes and share links (`https://…/ABCD`), with WhatsApp, Share and Copy link buttons.
 - **Computer players:** add them to fill seats or to practise alone.
 - **Hidden cards stay hidden:** the server decides everything and sends each phone only the cards that player is allowed to see.
-- **Reconnecting:** a reload or a dropped connection puts you back in your seat. While a player is offline, their turns pass after 30 seconds.
-- **Host controls:** turn timer, pause/resume, skip a turn, remove a player, make someone else host, and end the game. The host role moves to someone else if the host is offline for 30 seconds.
+- **Reconnecting:** a reload or a dropped connection puts you back in your seat. While a player is offline, their turn passes after 30 seconds; once they have missed a turn, the next ones pass after 5 seconds until they are back.
+- **Host controls:** turn timer, pause/resume, skip a turn, remove a player, make someone else host, and end the game. When a player goes offline mid-game, the host sees a **Remove** button on their seat: it takes them out of the game so nobody waits for their turns (if they come back they can watch, and play the next game). The host role moves to someone else if the host is offline for 30 seconds.
 - **Seat takeover:** if a phone dies, the person can rejoin on another device and take their seat back once the host approves.
 - **On screen:** a running game log, scores per round, a round-results breakdown and a How-to-play page.
 - **Phone extras:** sounds, vibration and card animations. The screen stays awake during a game.
