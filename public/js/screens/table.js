@@ -224,7 +224,7 @@ function slotAction(st, p, i, s) {
 
 function center(st) {
   const { ctx, g, t } = st;
-  const canDraw = st.myTurn && t.stage === 'draw' && !st.v.paused;
+  const canDraw = st.myTurn && t.stage === 'draw' && !st.v.paused && !ctx.S.snapMode;
   const canTake = canDraw && g.rules.takeDiscard && g.discardTop;
   return h(
     'section.center',
@@ -237,7 +237,7 @@ function center(st) {
     ),
     h(
       'div.pile.discard',
-      { class: { tap: canTake && !ctx.S.snapMode }, onClick: canTake && !ctx.S.snapMode ? () => ctx.send('takeDiscard') : null },
+      { class: { tap: canTake }, onClick: canTake ? () => ctx.send('takeDiscard') : null },
       g.discardTop ? cardEl(g.discardTop, { size: 'md', key: 'discard' }) : h('div.card.md.empty', { dataset: { key: 'discard' } }),
       canSnap(st)
         ? h(

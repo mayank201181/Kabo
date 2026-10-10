@@ -81,7 +81,7 @@ function rulesSheet(ctx) {
     r.snap &&
       h(
         'p',
-        "Whenever a card lands on the discard pile, anyone can tap Snap and throw a card of the same rank on it, even when it's not their turn. Only the first person gets it: anyone later, or anyone who throws the wrong card, takes a penalty card. You can also throw someone else's card if you know it (say you spied on their 6), and then you give them one of your cards in its place. Once you call Kabo, your cards are final.",
+        "Whenever a card lands on the discard pile, anyone can tap Snap and throw a card of the same rank on it, even when it's not their turn, until the next player draws a card. Only the first person gets it: anyone later, or anyone who throws the wrong card, takes a penalty card. You can also throw someone else's card if you know it (say you spied on their 6), and then you give them one of your cards in its place. Once you call Kabo, your cards are final.",
       ),
     h('h3', 'Scoring'),
     h(

@@ -554,7 +554,7 @@ test('snap is closed once the discard is taken, for the Kabo caller, and for loc
   g.drawDeck('p0');
   g.discardDrawn('p0');
   g.takeDiscard('p1');
-  assert.throws(() => g.snap('p2', { pid: 'p2', slot: 0 }), /no fresh discard/);
+  assert.throws(() => g.snap('p2', { pid: 'p2', slot: 0 }), /Too late: P1 took that card/);
   g.exchange('p1', [1]);
   // p1 threw the 2S; nobody has a 2. p2 calls Kabo and can no longer match.
   g.callCabo('p2');
@@ -565,15 +565,40 @@ test('snap is closed once the discard is taken, for the Kabo caller, and for loc
 });
 
 test("snapping your last card ends the round, even in the middle of someone's turn", () => {
-  const g = rig([['5S', '9C'], ['7C', '2S'], ['6H']], { deck: ['6D', 'AS', 'AH'] });
+  const g = rig([['5S', '9C'], ['7C', '2S'], ['8H']], { deck: ['8D', 'AS'] });
   g.drawDeck('p0');
-  g.discardDrawn('p0');
-  g.drawDeck('p1');
+  g.usePower('p0', { own: 0 }); // the 8 goes on the discard pile while p0 peeks
+  assert.equal(g.turn.stage, 'reveal');
   g.snap('p2', { pid: 'p2', slot: 0 });
   assert.equal(g.phase, 'roundEnd');
   assert.equal(g.results.reason, 'empty');
   assert.equal(g.results.emptied, 'p2');
-  assert.ok(g.discard.some((c) => c.r + c.s === 'AS'), "p1's drawn card goes to the discard pile");
+});
+
+test('snap: once the next player draws, the last discard can no longer be matched', () => {
+  const g = rig([['5S', '9C'], ['6C', '2S'], ['6H', '3C']], { deck: ['6D', 'AS', 'AH'] });
+  g.drawDeck('p0');
+  g.discardDrawn('p0');
+  assert.equal(g.viewFor('p1').snap.open, true, 'open until p1 draws');
+  g.snap('p1', { pid: 'p1', slot: 0 }); // match first, then draw
+  g.drawDeck('p1');
+  assert.equal(g.viewFor('p2').snap, null);
+  assert.throws(() => g.snap('p2', { pid: 'p2', slot: 0 }), /Too late: P1 already drew a card/);
+  assert.throws(() => g.snap('p1', { pid: 'p1', slot: 1 }), /Too late: you already drew a card/);
+  assert.equal(ev(g, 'snap').length, 1, 'trying after the draw costs nothing');
+  assert.deepEqual(codes(g.players[2].hand), ['6H', '3C']);
+  g.discardDrawn('p1');
+  assert.equal(g.viewFor('p2').snap.r, 'A', 'the next discard opens a new chance');
+});
+
+test('snap: calling Kabo is not a draw, so the last discard can still be matched', () => {
+  const g = rig([['5S', '9C'], ['7C', '2S'], ['6H', '3C']], { deck: ['6D', 'AS'] });
+  g.drawDeck('p0');
+  g.discardDrawn('p0');
+  g.callCabo('p1');
+  assert.equal(g.turn.pid, 'p2');
+  g.snap('p2', { pid: 'p2', slot: 0 });
+  assert.deepEqual(codes(g.players[2].hand), [null, '3C']);
 });
 
 test('snap can be switched off', () => {

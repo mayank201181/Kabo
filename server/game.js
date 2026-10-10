@@ -160,6 +160,8 @@ export class Game {
     this.need(this.deck.length > 0, 'The deck is empty');
     const card = this.deck.pop();
     this.know(pid, card);
+    // House rule: once the next card is drawn, the last discard can't be matched any more.
+    this.snapWin = null;
     Object.assign(this.turn, { stage: 'decide', drawn: card, from: 'deck' });
     this.emit({ t: 'draw', pid, from: 'deck' });
   }
@@ -371,7 +373,8 @@ export class Game {
 
   // ---------------------------------------------------- matching out of turn
 
-  // A card just discarded in play can be matched by anyone, out of turn.
+  // A card just discarded in play can be matched by anyone, out of turn,
+  // until the next player draws.
   openSnap() {
     this.snapWin = this.rules.snap ? { card: this.discard.at(-1), by: null } : null;
   }
@@ -386,6 +389,10 @@ export class Game {
     const me = this.player(pid);
     this.need(this.caboBy !== pid, 'You called Kabo, so your cards are final');
     const win = this.snapWin;
+    if (!win && this.turn.stage !== 'draw') {
+      const who = this.turn.pid === pid ? 'you' : this.player(this.turn.pid).name;
+      throw new GameError(this.turn.from === 'discard' ? `Too late: ${who} took that card` : `Too late: ${who} already drew a card`);
+    }
     this.need(win, 'There is no fresh discard to match');
     const owner = this.players.find((p) => p.id === target.pid);
     this.need(owner && this.ownSlot(owner, target.slot), 'Pick the card you want to match');
