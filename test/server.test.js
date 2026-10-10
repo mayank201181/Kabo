@@ -11,7 +11,9 @@ let srv;
 let url;
 
 before(async () => {
-  srv = createApp({ timing: { botMin: 5, botMax: 15, offlineGrace: 400, offlineQuick: 60, hostGrace: 300, peekMin: 400, revealMax: 400 } });
+  srv = createApp({
+    timing: { botMin: 5, botMax: 15, offlineGrace: 400, offlineQuick: 60, hostGrace: 300, peekMin: 400, revealMax: 400, snapMin: 5, snapMax: 10, snapWait: 20 },
+  });
   await new Promise((r) => srv.server.listen(0, r));
   url = `http://localhost:${srv.server.address().port}`;
 });
@@ -24,9 +26,10 @@ after(() => {
 
 let tokenSeq = 0;
 class Client {
-  constructor(name, token = `test-token-${name}-${++tokenSeq}`) {
+  constructor(name, token = `test-token-${name}-${++tokenSeq}`, base = url) {
     this.name = name;
     this.token = token;
+    this.base = base;
     this.view = null;
     this.events = [];
     this.removed = null;
@@ -34,7 +37,7 @@ class Client {
   }
 
   connect() {
-    this.socket = connect(url, { transports: ['websocket'], forceNew: true, reconnection: false });
+    this.socket = connect(this.base, { transports: ['websocket'], forceNew: true, reconnection: false });
     this.socket.on('state', (m) => {
       this.view = m.view;
       this.events.push(...m.events);
@@ -369,6 +372,33 @@ test('someone watching can take over an offline seat if the host agrees', async 
   assert.equal(d.view.game.players.find((p) => p.id === seat).name, 'New-phone');
   a.close();
   d.close();
+});
+
+test('a bot whose turn is next waits before drawing, so people can match the last discard', async () => {
+  const app = createApp({ timing: { botMin: 5, botMax: 10, peekMin: 400, snapMin: 5000, snapMax: 5000, snapWait: 300 } });
+  await new Promise((r) => app.server.listen(0, r));
+  const a = new Client('Solo', undefined, `http://localhost:${app.server.address().port}`);
+  try {
+    await a.create();
+    await a.cmd('addBot');
+    await a.until((v) => v.members.length === 2);
+    await a.cmd('start');
+    await a.until((v) => v.game?.phase === 'peek');
+    await a.cmd('peekReady');
+    const bot = a.view.members.find((m) => m.bot).id;
+    await a.until((v) => v.game.phase === 'turn' && v.game.turn.pid === v.me && v.game.turn.stage === 'draw', 5000);
+    await a.cmd('drawDeck');
+    await a.cmd('discard');
+    const t0 = Date.now();
+    await a.until((v) => v.game.phase !== 'turn' || v.game.turn.pid !== bot || v.game.turn.stage !== 'draw', 3000);
+    const waited = Date.now() - t0;
+    assert.ok(waited >= 250, `the bot moved after ${waited}ms`);
+  } finally {
+    a.close();
+    app.rooms.close();
+    app.io.close();
+    app.server.close();
+  }
 });
 
 test('junk input is rejected without taking the server down', async () => {

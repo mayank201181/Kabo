@@ -152,9 +152,11 @@ function syncUi(v, prevGame) {
     S.forced = null;
   }
   if (!g && S.sheet?.name === 'scores') S.sheet = null;
-  // Each fresh discard is its own chance to match; a new one cancels a half-made snap.
+  // Each fresh discard is its own chance to match; a new one, or the next
+  // player drawing, cancels a half-made snap.
   const snapKey = g?.snap?.open ? `${g.round}:${g.discardCount}:${g.snap.r}` : '';
   if (snapKey !== S.snapKey) {
+    if (S.snapMode && !snapKey && g?.turn && g.turn.stage !== 'draw') toast(`Too late: ${namer(v)(g.turn.pid)} drew a card`, 'warn');
     S.snapKey = snapKey;
     S.snapMode = null;
   }

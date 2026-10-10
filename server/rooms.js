@@ -27,7 +27,8 @@ const DEFAULT_TIMING = {
   peekMin: 30_000,      // the opening peek never gets less than this
   revealMax: 20_000,    // time to look at peeked/spied cards
   snapMin: 1600,        // bots give people a head start when matching out of turn
-  snapMax: 3200,
+  snapMax: 2600,
+  snapWait: 2900,       // a bot waits this long to draw while the last discard can still be matched
 };
 
 const need = (cond, msg) => {
@@ -482,8 +483,10 @@ export class Room {
     if (g.phase === 'peek') pid = [...g.peek.keys()].find((id) => isBot(id) && !g.peek.get(id).ready);
     else if (g.phase === 'turn' && isBot(g.turn.pid)) pid = g.turn.pid;
     if (!pid) return;
-    const { botMin, botMax } = this.timing;
-    const delay = g.phase === 'peek' ? botMin / 2 : botMin + this.rng() * (botMax - botMin);
+    const { botMin, botMax, snapWait } = this.timing;
+    let delay = g.phase === 'peek' ? botMin / 2 : botMin + this.rng() * (botMax - botMin);
+    // Drawing ends the chance to match the last discard, so give everyone time to match it first.
+    if (g.phase === 'turn' && g.turn.stage === 'draw' && g.snapWin && !g.snapWin.by) delay = Math.max(delay, snapWait);
     this.timers.bot = setTimeout(() => {
       this.timers.bot = null;
       if (this.game !== g || this.paused) return;
