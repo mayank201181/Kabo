@@ -22,6 +22,7 @@ export function renderHome(ctx) {
     autocapitalize: 'characters',
     autocomplete: 'off',
     spellcheck: 'false',
+    enterKeyHint: 'go',
     onInput: (e) => {
       S.joinCode = e.target.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4);
       e.target.value = S.joinCode;
@@ -41,6 +42,13 @@ export function renderHome(ctx) {
     h(
       'form.panel',
       {
+        // Enter (the phone keyboard's Go) with a room code typed in means "join that
+        // room"; without this the form submits through Create and makes a new one.
+        onKeydown: (e) => {
+          if (e.key !== 'Enter' || e.isComposing || code || !S.joinCode || e.target.tagName !== 'INPUT') return;
+          e.preventDefault();
+          ctx.start('join');
+        },
         onSubmit: (e) => {
           e.preventDefault();
           ctx.start(code ? 'join' : 'create', code);

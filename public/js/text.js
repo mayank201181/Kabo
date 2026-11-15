@@ -4,6 +4,7 @@ import { cardText, POWERS } from './cards.js';
 
 export function namer(v) {
   const names = new Map();
+  for (const m of v.gone ?? []) names.set(m.id, m.name); // people who have left the room
   for (const m of v.members) names.set(m.id, m.name);
   for (const p of v.game?.players ?? []) names.set(p.id, p.name);
   return (pid, fallback = 'Someone') => (pid === v.me ? 'You' : names.get(pid) ?? fallback);
@@ -39,8 +40,9 @@ export function describe(ev, v) {
       const card = ref(ev.owner, ev.slot, ev.pid);
       if (ev.result === 'wrong') return `${N} tried to match the ${cardText(ev.c)} with ${card}, but it was the ${cardText(ev.shown)}: penalty card`;
       if (ev.owner === ev.pid) return `${N} matched the ${cardText(ev.c)} out of turn with ${own(ev.pid)} ${cardText(ev.out)}!`;
+      // Say which cards moved: the owner now holds a card they haven't seen.
       const them = ev.owner === v.me ? 'you' : name(ev.owner);
-      return `${N} matched ${ev.owner === v.me ? 'your' : `${name(ev.owner)}'s`} ${cardText(ev.out)} on the ${cardText(ev.c)} and gave ${them} one of ${own(ev.pid)} cards`;
+      return `${N} matched ${card} (${cardText(ev.out)}) on the ${cardText(ev.c)} and gave ${them} ${own(ev.pid)} card ${ev.gave + 1} in its place`;
     }
     case 'power': return `${N} played the ${cardText(ev.c)}: ${POWERS[ev.power].name}`;
     case 'peek': return `${N} peeked at ${own(ev.pid)} card ${ev.slot + 1}`;
@@ -66,7 +68,7 @@ export function describe(ev, v) {
     case 'host': return ev.pid === v.me ? 'You are now the host' : `${N} is now the host`;
     case 'pause': return `${N} paused the game`;
     case 'resume': return `${N} resumed the game`;
-    case 'claim': return `${N} asked to take over ${name(ev.seat)}'s seat`;
+    case 'claim': return `${N} asked to take over ${ev.seat === v.me ? 'your' : `${name(ev.seat)}'s`} seat`;
     case 'claimDenied': return ev.pid === v.me ? 'The host said no to your request' : null;
     case 'takeover': return `${ev.name} took over ${ev.old}'s seat`;
     case 'lobby': return 'Back to the lobby';

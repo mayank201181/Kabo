@@ -15,7 +15,7 @@ The Kabo (Cabo) memory card game for 2–10 players, played online on phones. On
   - J, Q: blind-swap one of yours with one of theirs.
   - K♠, K♣: look at one of yours and one of theirs, then swap or not. Red Kings can do the same, but nobody will because they're worth −1.
 - **Matching:** draw a card from the deck with the same rank as one of yours (a 2 when you know you have a 2) and you can throw both on the discard pile, so your hand gets smaller. You can match more than one card at a time. A card that doesn't match is turned face-up and costs a penalty card. Get rid of all your cards and the round ends.
-- **Matching out of turn (snap):** whenever a card lands on the discard pile, anyone can throw a card of the same rank on it, even out of turn, until the next player draws a card. Only the first person gets it; anyone later, or with the wrong card, takes a penalty card. You can also throw someone else's card if you know it (e.g. you spied on it), then give them one of yours in its place. The Kabo caller's cards are final.
+- **Matching out of turn (snap):** whenever a card lands on the discard pile, anyone can throw a card of the same rank on it, even out of turn, until the next player draws a card. Only the first person gets it; anyone later, or with the wrong card, takes a penalty card. You can also throw someone else's card if you know it (e.g. you spied on it), then give them one of yours in its place. The Kabo caller's cards are final. In the app: tap **Snap**, then the card to throw. If it is another player's card, tap one of your own cards next to hand it to them. When a computer player is next, it waits about 3 seconds before drawing, and about 5 more once someone has tapped Snap.
 - **Deck runs out:** the discard pile is reshuffled into a new deck.
 - **Scoring:**
   - Your score for the round is the total of your cards.
@@ -32,7 +32,7 @@ The host can switch these in the lobby: target 50/100, turn timer, reshuffle vs.
 - **Rooms:** 4-letter room codes and share links (`https://…/ABCD`), with WhatsApp, Share and Copy link buttons.
 - **Computer players:** add them to fill seats or to practise alone.
 - **Hidden cards stay hidden:** the server decides everything and sends each phone only the cards that player is allowed to see.
-- **Reconnecting:** a reload or a dropped connection puts you back in your seat. While a player is offline, their turn passes after 30 seconds; once they have missed a turn, the next ones pass after 5 seconds until they are back.
+- **Reconnecting:** a reload or a dropped connection puts you back in your seat, and the phone keeps trying if the connection drops again while it is rejoining. While a player is offline, their turn passes after 30 seconds; once they have missed a turn, the next ones pass after 5 seconds until they are back.
 - **Host controls:** turn timer, pause/resume, skip a turn, remove a player, make someone else host, and end the game. When a player goes offline mid-game, the host sees a **Remove** button on their seat: it takes them out of the game so nobody waits for their turns (if they come back they can watch, and play the next game). The host role moves to someone else if the host is offline for 30 seconds.
 - **Seat takeover:** if a phone dies, the person can rejoin on another device and take their seat back once the host approves.
 - **On screen:** a running game log, scores per round, a round-results breakdown and a How-to-play page.
@@ -48,7 +48,7 @@ The host can switch these in the lobby: target 50/100, turn timer, reshuffle vs.
 Notes:
 
 - **The free plan sleeps** after 15 minutes with nobody connected, and the first visit then takes about a minute to wake it. Render can also restart free servers, which ends games in progress. For game nights, change the instance type to Starter (about $7/month) under the service's Settings, and switch back to free afterwards if you like.
-- **Every merge to `main` redeploys** and restarts the server, which ends games in progress. Don't deploy during a game.
+- **Every merge to `main` redeploys** and restarts the server, which ends games in progress. Don't deploy during a game. A phone that still has the page open reloads itself when it reconnects, so everyone gets the new version.
 - Games live in memory only. Nothing is stored and there are no accounts.
 
 ## Run it locally
@@ -68,4 +68,4 @@ Phones on the same Wi-Fi can join at `http://<your-computer's-IP>:3000`.
 - `server/rooms.js`: rooms, seats, host controls, turn timers, reconnects and the socket API.
 - `server/index.js`: the Express + Socket.IO server.
 - `public/`: the phone web app, plain ES modules with no build step.
-- `test/`: unit tests, randomised fuzz games that check no card is ever lost or leaked, and end-to-end socket tests.
+- `test/`: unit tests, randomised fuzz games that check no card is ever lost or leaked, room timer tests on a mocked clock, and end-to-end socket tests.

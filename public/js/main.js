@@ -44,6 +44,10 @@ const S = {
   ui: { key: '', mode: null, own: [], other: null, caboArmed: 0 },
   snapMode: null, // { step: 'pick' } or { step: 'give', target } while throwing a card out of turn
   snapKey: '',
+  inFlight: 0, // moves sent that the server hasn't answered yet
+  quietUntil: 0, // taps on the action bar are ignored until then (see syncUi)
+  build: null, // which version of the client files the server had when the page loaded
+  reloading: false,
   log: [],
   sheet: null, // { name, data } opened by the player
   hidden: null, // results/game-over sheet tucked away to look at the table
@@ -64,14 +68,19 @@ const socket = io({ reconnectionDelayMax: 4000 });
 
 function emit(event, data) {
   return new Promise((resolve) => {
-    if (!socket.connected) return resolve({ ok: false, error: 'Not connected. Trying to reconnect…' });
-    socket.timeout(8000).emit(event, data, (err, res) => resolve(err ? { ok: false, error: 'No answer from the server. Check your connection.' } : res));
+    // `lost` means no answer got through, which is not the same as the server saying no.
+    if (!socket.connected) return resolve({ ok: false, lost: true, error: 'Not connected. Trying to reconnect…' });
+    socket.timeout(8000).emit(event, data, (err, res) =>
+      resolve(err ? { ok: false, lost: true, error: 'No answer from the server. Check your connection.' } : res),
+    );
   });
 }
 
 async function send(type, args = {}) {
   unlockAudio();
+  S.inFlight += 1;
   const res = await emit('cmd', { type, ...args });
+  S.inFlight -= 1;
   if (!res?.ok) {
     toast(res?.error ?? 'Something went wrong', 'error');
     sfx.error();
@@ -79,12 +88,19 @@ async function send(type, args = {}) {
   return res;
 }
 
-socket.on('connect', async () => {
-  S.connected = true;
+// Back in the seat after a reload or a dropped connection.
+let rejoinTimer = null;
+async function rejoin() {
+  clearTimeout(rejoinTimer);
   const code = S.view?.code ?? store.get('kabo.room');
   if (code && (!S.urlCode || S.urlCode === code || S.view)) {
     const res = await emit('rejoin', { code, token: S.token });
-    if (!res.ok) {
+    if (S.reloading) return;
+    if (res.lost) {
+      // The line dropped again before the answer came. That isn't a "no":
+      // keep the seat and ask again (the next 'connect' does it if we're offline).
+      if (socket.connected) rejoinTimer = setTimeout(rejoin, 2000);
+    } else if (!res.ok) {
       store.del('kabo.room');
       if (S.view || S.urlCode === code) toast(res.error, 'error');
       if (/closed/.test(res.error ?? '') && S.urlCode === code) {
@@ -95,6 +111,21 @@ socket.on('connect', async () => {
     }
   }
   render();
+}
+
+socket.on('connect', () => {
+  S.connected = true;
+  rejoin();
+});
+
+// After a deploy the server has newer client files than this page is running.
+// The games ended with the restart anyway, so reload and get them.
+socket.on('hello', ({ build } = {}) => {
+  if (!build) return;
+  if (S.build && S.build !== build) {
+    S.reloading = true;
+    location.reload();
+  } else S.build = build;
 });
 
 socket.on('disconnect', () => {
@@ -123,7 +154,10 @@ socket.on('state', ({ view, events, replay }) => {
   if (location.pathname !== `/${view.code}`) history.replaceState(null, '', `/${view.code}`);
   if (view.timer) S.deadline = performance.now() + view.timer.left;
 
-  if (replay) S.log = [];
+  if (replay) {
+    S.log = [];
+    S.snapMode = null; // states were missed while away
+  }
   for (const ev of events) {
     const text = describe(ev, view);
     if (text) S.log.push({ seq: ev.seq, text });
@@ -145,6 +179,10 @@ function syncUi(v, prevGame) {
   const key = g ? `${g.round}:${g.phase}:${g.turn?.pid ?? ''}:${g.turn?.stage ?? ''}` : 'lobby';
   if (key !== S.ui.key) {
     S.ui = { key, mode: null, own: [], other: null, caboArmed: 0 };
+    // The new state arrives before the answer to my own move, so this change
+    // is what my tap did: the buttons under my finger are new. The second touch
+    // of a double-tap must not press them (Draw then Discard, Start then Skip).
+    if (S.inFlight) S.quietUntil = performance.now() + 400;
     if (g?.turn?.pid === v.me && g.turn.stage === 'decide' && g.turn.from === 'discard') S.ui.mode = 'exchange';
   }
   if (!g || (prevGame && prevGame.round !== g.round) || (prevGame && prevGame.phase !== g.phase)) {
@@ -152,13 +190,23 @@ function syncUi(v, prevGame) {
     S.forced = null;
   }
   if (!g && S.sheet?.name === 'scores') S.sheet = null;
-  // Each fresh discard is its own chance to match; a new one, or the next
-  // player drawing, cancels a half-made snap.
-  const snapKey = g?.snap?.open ? `${g.round}:${g.discardCount}:${g.snap.r}` : '';
+  // Each fresh discard is its own chance to match (it always closes before the
+  // next one opens); the next player drawing, or someone else matching first,
+  // cancels a half-made snap. My own first throw doesn't: I may throw another.
+  const snapKey = g?.snap?.open ? `${g.round}:${g.snap.r}` : '';
   if (snapKey !== S.snapKey) {
-    if (S.snapMode && !snapKey && g?.turn && g.turn.stage !== 'draw') toast(`Too late: ${namer(v)(g.turn.pid)} drew a card`, 'warn');
+    if (S.snapMode && g?.turn && !g.snap && g.turn.stage === 'decide') {
+      toast(`Too late: ${namer(v)(g.turn.pid)} ${g.turn.from === 'discard' ? 'took that card' : 'drew a card'}`, 'warn');
+    }
     S.snapKey = snapKey;
     S.snapMode = null;
+  }
+  // The card picked to throw is gone, or someone's wrong guess has turned it
+  // face-up as another rank: call the throw off rather than walk into a penalty.
+  if (S.snapMode?.step === 'give' && g?.snap) {
+    const { pid, slot } = S.snapMode.target;
+    const s = g.players.find((p) => p.id === pid)?.slots[slot];
+    if (!s || (s.up && s.c && s.c.r !== g.snap.r)) S.snapMode = null;
   }
 }
 
@@ -194,6 +242,8 @@ const ctx = {
     unlockAudio();
     S.snapMode = { step: 'pick' };
     render();
+    // A computer player that is next holds its draw a little while a card is picked.
+    emit('cmd', { type: 'snapping' });
   },
   setSnap(mode) {
     S.snapMode = mode;
@@ -210,6 +260,7 @@ const ctx = {
   },
   armCabo() {
     S.ui.caboArmed = Date.now();
+    S.quietUntil = performance.now() + 400; // "Tap again!" has only just appeared under the finger
     render();
     setTimeout(render, 3100);
   },
@@ -566,5 +617,17 @@ document.addEventListener('visibilitychange', () => {
 });
 
 document.addEventListener('pointerdown', unlockAudio, { passive: true });
+
+// See S.quietUntil: swallow the tail of a double-tap on the action bar.
+document.addEventListener(
+  'click',
+  (e) => {
+    if (performance.now() < S.quietUntil && e.target.closest?.('footer.actions')) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+  },
+  true,
+);
 
 render();

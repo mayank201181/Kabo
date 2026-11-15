@@ -25,7 +25,8 @@ export function unlockAudio() {
       if (!AC) return;
       ctx = new AC();
     }
-    if (ctx.state === 'suspended') ctx.resume();
+    // 'suspended' before the first tap; iPhones use 'interrupted' after leaving the page.
+    if (ctx.state !== 'running') ctx.resume()?.catch?.(() => {});
   } catch {}
 }
 
