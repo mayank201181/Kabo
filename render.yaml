@@ -8,5 +8,5 @@ services:
     plan: free # switch to the $7/month instance in Render's settings for an always-on server
     branch: main
     buildCommand: npm ci --omit=dev
-    startCommand: npm start
+    startCommand: node server/index.js # not `npm start`: node must get the shutdown signal itself
     healthCheckPath: /healthz
