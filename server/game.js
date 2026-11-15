@@ -91,6 +91,12 @@ export class Game {
     this.knowAll(card);
   }
 
+  // The card on top of the discard pile. Cards of players who left lie
+  // face-down underneath (`buried`) and are never the top.
+  topDiscard() {
+    return this.discard.length > this.buried ? this.discard.at(-1) : null;
+  }
+
   // ------------------------------------------------------------------ round
 
   startRound() {
@@ -101,6 +107,7 @@ export class Game {
     }
     this.known = new Map(this.players.map((p) => [p.id, new Set()]));
     this.discard = [];
+    this.buried = 0; // cards of players who left, face-down at the bottom of the discard pile
     this.toDiscard(this.deck.pop());
     this.caboBy = null;
     this.caboName = null;
@@ -169,7 +176,7 @@ export class Game {
   takeDiscard(pid) {
     this.needTurn(pid, 'draw');
     this.need(this.rules.takeDiscard, 'In this game you always draw from the deck');
-    this.need(this.discard.length > 0, 'The discard pile is empty');
+    this.need(this.topDiscard(), 'The discard pile is empty');
     const card = this.discard.pop();
     this.snapWin = null;
     Object.assign(this.turn, { stage: 'decide', drawn: card, from: 'discard' });
@@ -362,10 +369,13 @@ export class Game {
   // Returns false when the deck is empty and can't be refilled.
   refillDeck() {
     if (this.deck.length) return true;
-    if (!this.rules.reshuffle || this.discard.length < 2) return false;
-    const top = this.discard.pop();
+    // The top card stays; everything under it becomes the new deck.
+    const keep = this.topDiscard() ? 1 : 0;
+    if (!this.rules.reshuffle || this.discard.length <= keep) return false;
+    const top = keep ? this.discard.pop() : null;
     this.deck = shuffle(this.discard, this.rng);
-    this.discard = [top];
+    this.discard = top ? [top] : [];
+    this.buried = 0;
     for (const seen of this.known.values()) for (const c of this.deck) seen.delete(c.id);
     this.emit({ t: 'reshuffle', n: this.deck.length });
     return true;
@@ -434,7 +444,9 @@ export class Game {
 
   // A penalty can take the last card out of turn; if it can't be refilled, the round is over.
   checkDeck() {
-    if (this.phase === 'turn' && !this.refillDeck()) this.endRound('deck');
+    if (this.phase !== 'turn' || this.refillDeck()) return;
+    // Mid-turn (someone is looking at a card): the round ends when that turn does, in endTurn().
+    if (this.turn.stage === 'draw') this.endRound('deck');
   }
 
   trimHand(p) {
@@ -500,8 +512,11 @@ export class Game {
   }
 
   finishGame() {
+    // The last player standing may be holding a drawn card.
+    if (this.turn?.drawn) this.toDiscard(this.turn.drawn);
     this.phase = 'gameOver';
     this.turn = null;
+    this.snapWin = null;
     const best = Math.min(...this.players.map((p) => p.total));
     let winners = this.players.filter((p) => p.total === best);
     if (winners.length > 1) {
@@ -517,6 +532,7 @@ export class Game {
   // (clockwise) to the previous start player.
   nextRound() {
     this.need(this.phase === 'roundEnd', 'The round is still going');
+    this.need(this.players.length >= 2, 'You need at least 2 players');
     const ids = this.players.map((p) => p.id);
     const from = Math.max(0, ids.indexOf(this.startPid));
     let best = null;
@@ -544,6 +560,8 @@ export class Game {
   removePlayer(pid) {
     const idx = this.players.findIndex((p) => p.id === pid);
     if (idx < 0) return;
+    // The game is over: the final standings (and the winner's name) stay as they are.
+    if (this.phase === 'gameOver') return;
     const p = this.players[idx];
     const t = this.turn;
     const wasTurn = this.phase === 'turn' && t.pid === pid;
@@ -558,15 +576,16 @@ export class Game {
     }
     const cards = p.hand.filter(Boolean).map((s) => s.card);
     this.discard.unshift(...cards);
-    for (const c of cards) this.knowAll(c);
+    this.buried += cards.length;
     this.players.splice(idx, 1);
     this.known.delete(pid);
     this.peek?.delete(pid);
     this.finalTurns?.delete(pid);
     this.emit({ t: 'removed', pid, name: p.name });
 
-    if (this.phase === 'roundEnd' || this.phase === 'gameOver') return;
+    // One player can't play on, between rounds either: the game is over.
     if (this.players.length < 2) return this.finishGame();
+    if (this.phase === 'roundEnd') return;
     if (this.phase === 'peek') return this.maybeBeginPlay();
     if (wasTurn) {
       if (this.caboBy && this.finalTurns.size === 0) return this.endRound('cabo');
@@ -613,8 +632,8 @@ export class Game {
         }),
       })),
       deckCount: this.deck.length,
-      discardCount: this.discard.length,
-      discardTop: this.discard.length ? face(this.discard.at(-1)) : null,
+      discardCount: this.discard.length - this.buried,
+      discardTop: this.topDiscard() ? face(this.topDiscard()) : null,
       caboBy: this.caboBy,
       finalTurns: this.finalTurns ? [...this.finalTurns] : null,
       turn:

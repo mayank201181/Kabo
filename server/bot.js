@@ -72,7 +72,7 @@ export function botStep(game, pid, rng = Math.random) {
       game.callCabo(pid);
       return true;
     }
-    const top = game.discard.at(-1);
+    const top = game.topDiscard();
     if (game.rules.takeDiscard && top && cardValue(top) <= 3 && cardValue(top) < worst.v - 1) game.takeDiscard(pid);
     else game.drawDeck(pid);
     return true;
@@ -143,7 +143,7 @@ export function botStep(game, pid, rng = Math.random) {
 // King, which is worth keeping). Bots only ever match their own cards.
 export function botSnapSlot(game, pid) {
   const win = game.snapWin;
-  if (!win || (win.by && win.by !== pid) || game.phase !== 'turn' || game.caboBy === pid) return null;
+  if (!win || (win.by && win.by !== pid) || game.phase !== 'turn' || game.caboBy === pid || !game.has(pid)) return null;
   const seen = game.known.get(pid);
   const t = game.turn;
   const hand = game.player(pid).hand;

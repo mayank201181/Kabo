@@ -42,7 +42,7 @@ export function memberRow(ctx, m, { tools = false } = {}) {
     !m.connected && !m.bot && h('span.tag', 'offline'),
     tools &&
       !isMe && [
-        !m.bot && h('button.mini-btn', { onClick: () => ctx.send('makeHost', { id: m.id }) }, 'Make host'),
+        !m.bot && m.connected && h('button.mini-btn', { onClick: () => ctx.send('makeHost', { id: m.id }) }, 'Make host'),
         h(
           'button.mini-btn.danger',
           {

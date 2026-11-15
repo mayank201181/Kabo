@@ -608,3 +608,115 @@ test('snap can be switched off', () => {
   assert.equal(g.viewFor('p1').snap, null);
   assert.throws(() => g.snap('p1', { pid: 'p1', slot: 0 }), /switched off/);
 });
+
+// ------------------------------------------------ found by the code review
+
+test('a player leaving between rounds ends the game when only one is left', () => {
+  const g = rig([['AS', '2S'], ['5H', '6H']], { deck: ['9D', '3D'] });
+  g.callCabo('p0');
+  g.drawDeck('p1');
+  g.discardDrawn('p1');
+  assert.equal(g.phase, 'roundEnd');
+  g.removePlayer('p1');
+  assert.equal(g.phase, 'gameOver', 'one player cannot start another round');
+  assert.deepEqual(g.winners, ['p0']);
+  assert.equal(g.results.rows.length, 2, 'the last round stays on the results screen');
+  assert.throws(() => g.nextRound(), GameError);
+  // The last player leaves too (a watcher may still be in the room): nothing breaks.
+  g.removePlayer('p0');
+  assert.equal(g.phase, 'gameOver');
+  assert.throws(() => g.nextRound(), GameError);
+});
+
+test('with three players, one leaving between rounds lets the next round start', () => {
+  const g = rig([['AS', '2S'], ['5H', '6H'], ['5C', '6C']], { deck: ['9D', '3D'] });
+  g.callCabo('p0');
+  g.drawDeck('p1');
+  g.discardDrawn('p1');
+  g.drawDeck('p2');
+  g.discardDrawn('p2');
+  g.removePlayer('p0');
+  assert.equal(g.phase, 'roundEnd');
+  g.nextRound();
+  assert.equal(g.phase, 'peek');
+  assert.equal(g.players.length, 2);
+  assert.ok(g.has(g.startPid));
+});
+
+test("a removed player's unseen cards never show as the top of the discard pile", () => {
+  const g = rig([['5S', '6S', '7S', '8S'], ['5H', '6H', '7H', '8H'], ['AD', '2D', '3D', 'KH']], {
+    rules: { takeDiscard: true },
+    discard: ['2C'],
+    deck: ['9D', '3C'],
+  });
+  g.takeDiscard('p0'); // the pile is empty while p0 decides
+  g.removePlayer('p2');
+  for (const viewer of ['p0', 'p1', 'watcher']) {
+    assert.equal(g.viewFor(viewer).discardTop, null, 'nobody ever saw those cards');
+    assert.equal(g.viewFor(viewer).discardCount, 0);
+  }
+  g.exchange('p0', [0]);
+  assert.deepEqual(g.viewFor('p1').discardTop, { r: '5', s: 'S' });
+  g.takeDiscard('p1');
+  assert.equal(g.viewFor('p0').discardTop, null, 'still hidden once the card above is taken');
+  g.exchange('p1', [0]);
+  assert.deepEqual(g.viewFor('p0').discardTop, { r: '5', s: 'H' });
+  // Out of play until the deck runs out, then shuffled back in with the rest of the pile.
+  g.drawDeck('p0');
+  g.discardDrawn('p0');
+  g.drawDeck('p1');
+  g.discardDrawn('p1');
+  assert.deepEqual(g.events.filter((e) => e.t === 'reshuffle').map((e) => e.n), [6], '4 from the player who left + 5H + 9D');
+  const v = g.viewFor('p1');
+  assert.deepEqual(v.discardTop, { r: '3', s: 'C' });
+  assert.equal(v.discardCount, 1);
+  assert.equal(v.deckCount, 6);
+});
+
+test('a player leaving during the opening peek does not expose a card when the start card is picked up', () => {
+  const g = new Game([0, 1, 2].map((i) => ({ id: `p${i}`, name: `P${i}` })), { takeDiscard: true }, { rng: seededRng(5) });
+  const leaver = g.players.find((p) => p.id !== g.startPid);
+  const hidden = leaver.hand.map((s) => s.card.r + s.card.s);
+  g.removePlayer(leaver.id);
+  for (const p of g.players) g.peekReady(p.id);
+  g.takeDiscard(g.turn.pid);
+  const top = g.viewFor('watcher').discardTop;
+  assert.ok(!top || !hidden.includes(top.r + top.s), `${top?.r}${top?.s} was face-down in the hand of the player who left`);
+});
+
+const HANDS = [['KC', '9C'], ['AH', '2S'], ['4H', '3C']];
+
+test('reshuffle off: a wrong throw during a Look & Swap on the last deck card does not cut the turn short', () => {
+  const g = rig(HANDS, { deck: ['KS'], rules: { reshuffle: false } });
+  g.drawDeck('p0');
+  g.usePower('p0', { own: 0, pid: 'p1', slot: 0 });
+  g.snap('p1', { pid: 'p1', slot: 1 }); // not a King, and there is no card left for a penalty
+  assert.deepEqual(ev(g, 'snap')[0].added, []);
+  assert.equal(g.phase, 'turn', 'p0 still gets to finish the swap');
+  assert.equal(g.turn.stage, 'reveal');
+  g.finishReveal('p0', true);
+  assert.equal(g.phase, 'roundEnd');
+  assert.equal(g.results.reason, 'deck');
+  assert.deepEqual(g.results.rows.map((r) => r.sum), [10, 15, 7]);
+});
+
+test('reshuffle off: a penalty that takes the last card while someone is looking ends the round after their turn', () => {
+  const g = rig(HANDS, { deck: ['KS', '5D'], rules: { reshuffle: false } });
+  g.drawDeck('p0');
+  g.usePower('p0', { own: 0, pid: 'p1', slot: 0 });
+  g.snap('p1', { pid: 'p1', slot: 1 });
+  assert.deepEqual(codes(g.players[1].hand), ['AH', '2S', '5D']);
+  assert.equal(g.phase, 'turn');
+  g.finishReveal('p0', false);
+  assert.equal(g.phase, 'roundEnd');
+  assert.equal(g.results.reason, 'deck');
+});
+
+test('reshuffle off: a penalty that takes the last card between turns still ends the round at once', () => {
+  const g = rig(HANDS, { deck: ['5D', '6D'], rules: { reshuffle: false } });
+  g.drawDeck('p0');
+  g.discardDrawn('p0');
+  g.snap('p2', { pid: 'p2', slot: 0 }); // wrong: takes the 6D, the last card
+  assert.equal(g.phase, 'roundEnd');
+  assert.equal(g.results.reason, 'deck');
+});

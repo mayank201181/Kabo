@@ -29,10 +29,21 @@ const DEFAULT_TIMING = {
   snapMin: 1600,        // bots give people a head start when matching out of turn
   snapMax: 2600,
   snapWait: 2900,       // a bot waits this long to draw while the last discard can still be matched
+  snapHold: 5000,       // ...and this long once a person has tapped Snap and is choosing a card
 };
 
 const need = (cond, msg) => {
   if (!cond) throw new GameError(msg);
+};
+
+// Timers and disconnects run outside any request: a bug in one room must not
+// end every game on the server.
+const safely = (what, fn) => () => {
+  try {
+    fn();
+  } catch (e) {
+    console.error(`${what} failed`, e);
+  }
 };
 
 export class Room {
@@ -41,6 +52,7 @@ export class Room {
     this.rng = rng;
     this.timing = { ...DEFAULT_TIMING, ...timing };
     this.members = new Map();
+    this.gone = new Map(); // id -> name of people who left, so old log lines can still name them
     this.order = []; // member ids in seat order (join order)
     this.hostId = null;
     this.settings = { ...DEFAULT_SETTINGS };
@@ -51,7 +63,9 @@ export class Room {
     this.seq = 0;
     this.sockets = new Map();
     this.timers = { turn: null, bot: null, host: null, snap: null };
+    this.botArmed = null;
     this.snapFor = null;
+    this.snapHold = null;
     this.stage = { key: '', at: Date.now() };
     this.deadlineInfo = null;
     this.lastSeen = Date.now();
@@ -71,6 +85,13 @@ export class Room {
 
   seated() {
     return this.list().filter((m) => m.seat);
+  }
+
+  // Take someone off the member list, but remember what they were called.
+  forget(m) {
+    this.members.delete(m.id);
+    this.gone.set(m.id, m.name);
+    if (this.gone.size > 40) this.gone.delete(this.gone.keys().next().value);
   }
 
   byToken(token) {
@@ -108,6 +129,15 @@ export class Room {
   }
 
   attach(m, socket) {
+    // One connection is one person: coming in as someone else lets go of who it was.
+    const was = socket.data.room === this.code ? this.members.get(socket.data.mid) : null;
+    if (was && was !== m) {
+      was.sockets.delete(socket.id);
+      if (was.sockets.size === 0 && !was.bot) {
+        was.connected = false;
+        was.offlineSince = Date.now();
+      }
+    }
     socket.data.room = this.code;
     socket.data.mid = m.id;
     socket.data.fresh = true;
@@ -146,7 +176,7 @@ export class Room {
 
   remove(m, why) {
     if (this.game?.has(m.id)) this.game.removePlayer(m.id);
-    this.members.delete(m.id);
+    this.forget(m);
     this.order = this.order.filter((id) => id !== m.id);
     this.claims = this.claims.filter((c) => c.from !== m.id && c.seat !== m.id);
     for (const sid of m.sockets) {
@@ -159,16 +189,33 @@ export class Room {
       this.sockets.delete(sid);
     }
     this.push({ t: why, pid: m.id, name: m.name });
+    if (!this.game) this.fillSeats();
     if (this.hostId === m.id) {
       const humans = this.list().filter((x) => !x.bot);
       this.setHost((humans.find((x) => x.connected) ?? humans[0])?.id ?? null);
     }
   }
 
+  // Between games, a free seat goes to whoever has been watching longest.
+  fillSeats() {
+    let seated = this.seated().length;
+    for (const m of this.list()) {
+      if (seated >= MAX_SEATS) break;
+      if (!m.seat) {
+        m.seat = true;
+        seated++;
+      }
+    }
+  }
+
   setHost(id) {
     if (id === this.hostId) return;
     this.hostId = id;
-    if (id) this.push({ t: 'host', pid: id });
+    // A new host who was waiting for a seat needs nobody's permission
+    // (they are then the host in that seat).
+    const own = this.claims.find((c) => c.from === id);
+    if (own) this.resolveClaim(own.id, true);
+    if (this.hostId) this.push({ t: 'host', pid: this.hostId });
   }
 
   // An offline host hands over to the next connected person after a grace period.
@@ -186,15 +233,18 @@ export class Room {
     }
     if (!next || this.timers.host) return;
     const wait = Math.max(0, host.offlineSince + this.timing.hostGrace - Date.now());
-    this.timers.host = setTimeout(() => {
-      this.timers.host = null;
-      const h = this.members.get(this.hostId);
-      const n = this.list().find((m) => !m.bot && m.connected);
-      if (h && !h.connected && n) {
-        this.setHost(n.id);
-        this.afterChange();
-      }
-    }, wait);
+    this.timers.host = setTimeout(
+      safely('host hand-over', () => {
+        this.timers.host = null;
+        const h = this.members.get(this.hostId);
+        const n = this.list().find((m) => !m.bot && m.connected);
+        if (h && !h.connected && n) {
+          this.setHost(n.id);
+          this.afterChange();
+        }
+      }),
+      wait,
+    );
   }
 
   // ------------------------------------------------------------ commands
@@ -236,6 +286,7 @@ export class Room {
         needHost();
         const t = this.members.get(cmd.id);
         need(t && !t.bot, 'Pick a person to be the host');
+        need(t.connected, `${t.name} is offline`);
         return this.setHost(t.id);
       }
       case 'start':
@@ -260,8 +311,13 @@ export class Room {
       case 'resume':
         needHost();
         if (this.paused) {
+          const now = Date.now();
           // A stage that began during the pause (e.g. a player was removed) gets its full time.
-          this.stage.at += Date.now() - Math.max(this.paused.at, this.stage.at);
+          this.stage.at += now - Math.max(this.paused.at, this.stage.at);
+          // The pause doesn't count against people who are offline either.
+          for (const x of this.members.values()) {
+            if (x.offlineSince != null) x.offlineSince += now - Math.max(this.paused.at, x.offlineSince);
+          }
           this.paused = null;
           this.push({ t: 'resume', pid: mid });
         }
@@ -274,6 +330,8 @@ export class Room {
           for (const [id, st] of [...g.peek]) if (g.phase === 'peek' && !st.ready) this.pass(id);
         } else if (g.phase === 'turn') this.pass(g.turn.pid);
         return;
+      case 'snapping':
+        return this.holdForSnap(m);
       case 'claim':
         return this.claim(m, cmd.seat);
       case 'resolveClaim':
@@ -308,6 +366,16 @@ export class Room {
     }
   }
 
+  // Someone has tapped Snap and is choosing which card to throw. A computer
+  // player that is next holds its draw a little longer (once per discard), so
+  // the throw isn't cut off between taps. People still end it by drawing.
+  holdForSnap(m) {
+    const g = this.game;
+    const win = g && g.phase === 'turn' && !this.paused && g.has(m.id) ? g.snapWin : null;
+    if (!win || (win.by && win.by !== m.id) || g.caboBy === m.id || this.snapHold?.card === win.card) return;
+    this.snapHold = { card: win.card, until: Date.now() + this.timing.snapHold };
+  }
+
   // The turn timer can change at any time; the other rules only between games.
   applySettings(s = {}) {
     const next = { ...this.settings };
@@ -316,6 +384,8 @@ export class Room {
       if (CHOICES.target.includes(s.target)) next.target = s.target;
       for (const k of SWITCHES) if (typeof s[k] === 'boolean') next[k] = s[k];
     }
+    // A new limit counts from now: time already spent on this turn must not make it run out at once.
+    if (this.game && next.turnTimer !== this.settings.turnTimer) this.stage.at = Date.now();
     this.settings = next;
   }
 
@@ -355,8 +425,11 @@ export class Room {
     const seat = this.members.get(seatId);
     need(seat && !seat.bot && g.has(seat.id) && !seat.connected, 'That seat is not free');
     this.claims = this.claims.filter((c) => c.from !== m.id);
-    this.claims.push({ id: newId(), from: m.id, seat: seat.id });
+    const c = { id: newId(), from: m.id, seat: seat.id };
+    this.claims.push(c);
     this.push({ t: 'claim', pid: m.id, seat: seat.id });
+    // The host decides, so the host's own request needs nobody else.
+    if (m.id === this.hostId) this.resolveClaim(c.id, true);
   }
 
   resolveClaim(id, allow) {
@@ -382,8 +455,9 @@ export class Room {
     seat.connected = seat.sockets.size > 0;
     seat.offlineSince = seat.connected ? null : Date.now();
     seat.skipped = false;
-    this.members.delete(from.id);
+    this.forget(from);
     this.order = this.order.filter((x) => x !== from.id);
+    if (this.hostId === from.id) this.hostId = seat.id; // still the same person
     this.claims = this.claims.filter((x) => x.from !== from.id && x.seat !== seat.id);
     this.game.renamePlayer(seat.id, seat.name);
     this.push({ t: 'takeover', pid: seat.id, name: seat.name, old });
@@ -419,9 +493,18 @@ export class Room {
     const T = this.settings.turnTimer * 1000;
     if (g.phase === 'peek') {
       let at = Infinity;
-      for (const [pid, st] of g.peek) if (!st.ready) at = Math.min(at, this.peekDeadline(pid));
+      let who = null;
+      for (const [pid, st] of g.peek) {
+        if (st.ready) continue;
+        const d = this.peekDeadline(pid);
+        if (d < at) [at, who] = [d, pid];
+      }
       if (!Number.isFinite(at)) return null;
-      return { at, pid: null, total: T ? Math.max(T, this.timing.peekMin) : this.timing.offlineGrace, reason: 'peek' };
+      // An offline player's shorter clock is theirs alone, so say whose it is.
+      const m = this.members.get(who);
+      const peekAt = T ? this.stage.at + Math.max(T, this.timing.peekMin) : Infinity;
+      if (!m.connected && at < peekAt) return { at, pid: who, total: this.grace(m), reason: 'offline' };
+      return { at, pid: null, total: Math.max(T, this.timing.peekMin), reason: 'peek' };
     }
     if (g.phase !== 'turn') return null;
     const pid = g.turn.pid;
@@ -442,7 +525,7 @@ export class Room {
     this.timers.turn = null;
     const d = this.someoneHere() ? this.deadline() : null;
     this.deadlineInfo = d;
-    if (d) this.timers.turn = setTimeout(() => this.onDeadline(), Math.max(0, d.at - Date.now()) + 25);
+    if (d) this.timers.turn = setTimeout(safely('turn timer', () => this.onDeadline()), Math.max(0, d.at - Date.now()) + 25);
   }
 
   onDeadline() {
@@ -473,35 +556,47 @@ export class Room {
   }
 
   armBots() {
-    clearTimeout(this.timers.bot);
-    this.timers.bot = null;
     const g = this.game;
-    // Bots (and timers) wait while nobody is connected.
-    if (!g || this.paused || !this.someoneHere()) return;
     const isBot = (id) => this.members.get(id)?.bot;
     let pid = null;
-    if (g.phase === 'peek') pid = [...g.peek.keys()].find((id) => isBot(id) && !g.peek.get(id).ready);
-    else if (g.phase === 'turn' && isBot(g.turn.pid)) pid = g.turn.pid;
+    // Bots (and timers) wait while nobody is connected.
+    if (g && !this.paused && this.someoneHere()) {
+      if (g.phase === 'peek') pid = [...g.peek.keys()].find((id) => isBot(id) && !g.peek.get(id).ready);
+      else if (g.phase === 'turn' && isBot(g.turn.pid)) pid = g.turn.pid;
+    }
+    // Drawing ends the chance to match the last discard, so a bot gives people time first.
+    const win = pid && g.phase === 'turn' && g.turn.stage === 'draw' ? g.snapWin : null;
+    const hold = win && this.snapHold?.card === win.card ? this.snapHold.until : 0;
+    // A pending move stands until the game itself moves on: other commands
+    // (even rejected ones) must not keep pushing it back.
+    const a = this.botArmed;
+    if (pid && this.timers.bot && a && a.g === g && a.pid === pid && a.tick === g.tick && a.hold === hold) return;
+    clearTimeout(this.timers.bot);
+    this.timers.bot = null;
+    this.botArmed = pid ? { g, pid, tick: g.tick, hold } : null;
     if (!pid) return;
     const { botMin, botMax, snapWait } = this.timing;
     let delay = g.phase === 'peek' ? botMin / 2 : botMin + this.rng() * (botMax - botMin);
-    // Drawing ends the chance to match the last discard, so give everyone time to match it first.
-    if (g.phase === 'turn' && g.turn.stage === 'draw' && g.snapWin && !g.snapWin.by) delay = Math.max(delay, snapWait);
-    this.timers.bot = setTimeout(() => {
-      this.timers.bot = null;
-      if (this.game !== g || this.paused) return;
-      try {
-        botStep(g, pid, this.rng);
-      } catch (e) {
-        console.error('bot move failed', e);
+    // Nobody has matched yet, or a person did and may throw another card of that rank.
+    if (win && (!win.by || !isBot(win.by))) delay = Math.max(delay, snapWait, hold - Date.now());
+    this.timers.bot = setTimeout(
+      safely('bot timer', () => {
+        this.timers.bot = null;
+        if (this.game !== g || this.paused) return;
         try {
-          g.autoPlay(pid);
-        } catch (e2) {
-          console.error('bot fallback failed', e2);
+          botStep(g, pid, this.rng);
+        } catch (e) {
+          console.error('bot move failed', e);
+          try {
+            g.autoPlay(pid);
+          } catch (e2) {
+            console.error('bot fallback failed', e2);
+          }
         }
-      }
-      this.afterChange();
-    }, delay);
+        this.afterChange();
+      }),
+      delay,
+    );
   }
 
   someoneHere() {
@@ -522,18 +617,22 @@ export class Room {
     if (!bots.length) return;
     const bot = bots[Math.floor(this.rng() * bots.length)].id;
     const { snapMin, snapMax } = this.timing;
-    this.timers.snap = setTimeout(() => {
-      this.timers.snap = null;
-      if (this.game !== g || this.paused || g.snapWin?.card !== win.card || g.snapWin.by) return;
-      const slot = botSnapSlot(g, bot);
-      if (slot === null) return;
-      try {
-        g.snap(bot, { pid: bot, slot });
-      } catch (e) {
-        console.error('bot snap failed', e);
-      }
-      this.afterChange();
-    }, snapMin + this.rng() * (snapMax - snapMin));
+    this.timers.snap = setTimeout(
+      safely('bot snap', () => {
+        this.timers.snap = null;
+        // The bot may have been removed from the game since the timer was set.
+        if (this.game !== g || this.paused || !g.has(bot) || g.snapWin?.card !== win.card || g.snapWin.by) return;
+        const slot = botSnapSlot(g, bot);
+        if (slot === null) return;
+        try {
+          g.snap(bot, { pid: bot, slot });
+        } catch (e) {
+          console.error('bot snap failed', e);
+        }
+        this.afterChange();
+      }),
+      snapMin + this.rng() * (snapMax - snapMin),
+    );
   }
 
   afterChange() {
@@ -574,8 +673,20 @@ export class Room {
     }
   }
 
-  viewFor(mid) {
+  // The countdown `mid` should see. In the opening peek everyone has their own
+  // clock: someone still looking sees theirs, not an offline player's shorter one.
+  timerFor(mid) {
     const d = this.deadlineInfo;
+    const g = this.game;
+    if (d?.reason === 'offline' && g?.phase === 'peek' && d.pid !== mid && g.peek.get(mid)?.ready === false) {
+      const at = this.peekDeadline(mid);
+      if (Number.isFinite(at)) return { at, pid: null, total: Math.max(this.settings.turnTimer * 1000, this.timing.peekMin), reason: 'peek' };
+    }
+    return d;
+  }
+
+  viewFor(mid) {
+    const d = this.timerFor(mid);
     const isHost = mid === this.hostId;
     return {
       code: this.code,
@@ -592,13 +703,15 @@ export class Room {
       paused: this.paused ? { by: this.paused.by } : null,
       timer: d ? { pid: d.pid, left: Math.max(0, d.at - Date.now()), total: d.total, reason: d.reason } : null,
       claims: this.claims.filter((c) => isHost || c.from === mid).map((c) => ({ ...c })),
+      gone: [...this.gone].map(([id, name]) => ({ id, name })),
       game: this.game ? this.game.viewFor(mid) : null,
     };
   }
 
   isIdle(now = Date.now()) {
     if (this.members.size === 0) return true;
-    return !this.someoneHere() && now - this.lastSeen > IDLE_ROOM_MS;
+    // The hour counts from when the last person left, not from the last change.
+    return !this.someoneHere() && now - Math.max(this.lastSeen, this.absentSince ?? 0) > IDLE_ROOM_MS;
   }
 
   destroy() {
@@ -630,7 +743,7 @@ export class RoomManager {
     this.rooms = new Map();
     this.rng = rng;
     this.timing = timing;
-    this.sweeper = setInterval(() => this.sweep(), 60_000);
+    this.sweeper = setInterval(safely('room sweep', () => this.sweep()), 60_000);
     this.sweeper.unref?.();
   }
 
@@ -735,9 +848,12 @@ export class RoomManager {
       }),
     );
 
-    socket.on('disconnect', () => {
-      const room = this.get(socket.data.room);
-      if (room) room.detach(socket);
-    });
+    socket.on(
+      'disconnect',
+      safely('disconnect', () => {
+        const room = this.get(socket.data.room);
+        if (room) room.detach(socket);
+      }),
+    );
   }
 }

@@ -561,6 +561,10 @@ h3 {
   font-size: 14px;
 }
 
+.invite .row {
+  flex-wrap: wrap;
+}
+
 .invite .row .btn {
   flex: 1;
 }
@@ -772,6 +776,7 @@ h3 {
   margin: 0 auto;
   padding: calc(6px + var(--safe-t)) 8px calc(6px + var(--safe-b));
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto auto minmax(0, 1fr) auto auto auto auto;
   gap: 6px;
 }
@@ -921,9 +926,16 @@ h3 {
   container-type: inline-size;
 }
 
-/* Four cards fill the row, up to a size that suits the number of players. */
+/* Four cards fill the row, up to a size that suits the number of players
+   (older phones without container units just get that size). */
 .minis .card.sm {
-  --w: min(var(--mini-max, 40px), calc((100cqw - 9px) / 4));
+  --w: var(--mini-max, 40px);
+}
+
+@supports (width: 1cqw) {
+  .minis .card.sm {
+    --w: min(var(--mini-max, 40px), calc((100cqw - 9px) / 4));
+  }
 }
 
 .opp-state {
@@ -994,20 +1006,24 @@ h3 {
   color: var(--faint);
 }
 
+/* Snap is a full-size button at the far end of the middle strip, away from the
+   deck, and it takes no height: nothing on the table moves when it appears. */
 .snap-btn {
   appearance: none;
   border: none;
   border-radius: 999px;
-  margin-top: 2px;
-  padding: 3px 10px;
-  min-height: 26px;
-  font: 800 12px/1 system-ui, sans-serif;
+  flex: none;
+  padding: 8px 14px;
+  min-width: 88px;
+  min-height: 46px;
+  font: 800 15px/1 system-ui, sans-serif;
   letter-spacing: 0.03em;
   color: #04361a;
   background: #4cd68f;
   box-shadow: 0 2px 0 #1f8a52;
   cursor: pointer;
   white-space: nowrap;
+  touch-action: manipulation;
   animation: throb 1s ease-in-out infinite;
 }
 
@@ -1235,6 +1251,23 @@ h3 {
   padding-right: 10px;
 }
 
+/* Picking a card to throw: one row, so the cards don't move under the finger. */
+.actions.snap {
+  flex-wrap: nowrap;
+}
+
+.actions.snap .hint {
+  flex: 1 1 0;
+  min-width: 0;
+  text-align: left;
+  font-size: 13px;
+  line-height: 1.25;
+}
+
+.actions.snap .btn {
+  flex: 0 0 auto;
+}
+
 /* Keep / Match / Discard / Power: two rows of two. */
 .actions.quad .btn {
   flex: 1 1 calc(50% - 4px);
@@ -1268,6 +1301,7 @@ h3 {
 .sheet {
   width: 100%;
   max-width: 640px;
+  max-height: 90vh;
   max-height: 90dvh;
   background: linear-gradient(180deg, #173323, #102519);
   border: 1px solid var(--panel-line);
@@ -1317,7 +1351,7 @@ h3 {
   margin-top: 4px;
 }
 
-.lead {
+p.lead {
   color: var(--muted);
 }
 
@@ -1449,7 +1483,7 @@ ol.log li:first-child {
 
 .res-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto 3.2em 3.2em;
+  grid-template-columns: minmax(4.5em, 1fr) minmax(0, auto) 3.2em 3.2em;
   align-items: center;
   gap: 8px;
   padding: 8px 2px;
@@ -1720,6 +1754,23 @@ ol.standings li.me span {
   }
 }
 
+/* A phone on its side, or a very short window: let the table scroll instead of
+   pushing the buttons off the bottom of the screen. */
+@media (max-height: 480px) {
+  body.in-game {
+    overflow: auto;
+  }
+  .screen.table {
+    height: auto;
+    min-height: 100vh;
+    min-height: 100dvh;
+    grid-template-rows: none;
+  }
+  .opps {
+    overflow: visible;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -1727,5 +1778,9 @@ ol.standings li.me span {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+  /* The banner is only ever visible through its animation. */
+  .banner {
+    animation: none;
   }
 }

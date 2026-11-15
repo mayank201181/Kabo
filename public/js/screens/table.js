@@ -154,7 +154,7 @@ function slotAction(st, p, i, s) {
 
   if (g.phase === 'peek' && mine && g.peek && !g.peek.ready) {
     if (g.peek.picks.includes(i)) out.glow = true;
-    else if (g.peek.picks.length < 2) out.tap = () => ctx.send('peekPick', { slot: i });
+    else if (g.peek.picks.length < 2 && !v.paused) out.tap = () => ctx.send('peekPick', { slot: i });
     return out;
   }
   const snap = ctx.S.snapMode;
@@ -239,22 +239,16 @@ function center(st) {
       'div.pile.discard',
       { class: { tap: canTake }, onClick: canTake ? () => ctx.send('takeDiscard') : null },
       g.discardTop ? cardEl(g.discardTop, { size: 'md', key: 'discard' }) : h('div.card.md.empty', { dataset: { key: 'discard' } }),
-      canSnap(st)
-        ? h(
-            'button.snap-btn',
-            {
-              class: { on: Boolean(ctx.S.snapMode) },
-              onClick: (e) => {
-                e.stopPropagation();
-                if (ctx.S.snapMode) ctx.cancelSnap();
-                else ctx.startSnap();
-              },
-            },
-            `Snap ${g.snap.r}!`,
-          )
-        : h('span.pile-lbl', 'Discard'),
+      h('span.pile-lbl', 'Discard'),
     ),
     stage(st),
+    // A full-size button on the far side from the deck: a near miss must not draw a card.
+    canSnap(st) &&
+      h(
+        'button.snap-btn',
+        { class: { on: Boolean(ctx.S.snapMode) }, onClick: () => (ctx.S.snapMode ? ctx.cancelSnap() : ctx.startSnap()) },
+        `Snap ${g.snap.r}!`,
+      ),
   );
 }
 
@@ -300,7 +294,7 @@ function stage(st) {
     st.myTurn
       ? [
           h('b', 'Your turn!'),
-          h('span', g.rules.takeDiscard && g.discardTop ? `Draw a card, take the ${cardText(g.discardTop)}, or call Kabo` : 'Draw a card from the deck, or call Kabo'),
+          h('span', g.rules.takeDiscard && g.discardTop ? `Draw a card, take the ${cardText(g.discardTop)}, or call Kabo` : canSnap(st) ? 'Draw a card, or call Kabo' : 'Draw a card from the deck, or call Kabo'),
         ]
       : [h('b', `${name(t.pid)}'s turn`), h('span', 'Choosing…')],
   );
@@ -317,13 +311,17 @@ function status(st) {
   if (timer && !v.paused) {
     const who = timer.pid ? (timer.pid === v.me ? 'You' : name(timer.pid)) : null;
     const label = timer.reason === 'offline' ? `${who} is offline, skipping in` : null;
+    const left = Math.max(0, ctx.S.deadline - performance.now());
     kids.push(
       h(
         'div.timer-wrap',
-        { dataset: { deadline: String(ctx.S.deadline), total: String(timer.total), mine: timer.pid === v.me || (!timer.pid && g.peek && !g.peek.ready) ? '1' : '0' } },
+        {
+          class: { low: left < 10_000 },
+          dataset: { deadline: String(ctx.S.deadline), total: String(timer.total), mine: timer.pid === v.me || (!timer.pid && g.peek && !g.peek.ready) ? '1' : '0' },
+        },
         label && h('span.tlabel', label),
-        h('div.timer', h('i')),
-        h('span.secs', `${Math.ceil(timer.left / 1000)}s`),
+        h('div.timer', h('i', { style: { width: `${Math.min(100, (left / (timer.total || 1)) * 100)}%` } })),
+        h('span.secs', `${Math.ceil(left / 1000)}s`),
       ),
     );
     // Waiting on someone who left: the host can take them out right here.
@@ -355,11 +353,12 @@ function actions(st) {
   if (!me) return bar(hint(t ? `${st.name(t.pid)}'s turn` : 'Players are memorising their cards'));
   if (ctx.S.snapMode && canSnap(st)) {
     const sm = ctx.S.snapMode;
-    return bar(
+    return h(
+      'footer.actions.snap',
       hint(
         sm.step === 'give'
           ? `Now tap one of your cards to give ${st.name(sm.target.pid)} in its place`
-          : `Tap the ${g.snap.r} you're throwing: yours, or someone else's you know. Wrong or too late = penalty card.`,
+          : `Tap the ${g.snap.r} to throw: yours, or someone else's. Wrong or too late = penalty card.`,
       ),
       h('button.btn', { onClick: () => ctx.cancelSnap() }, 'Cancel'),
     );

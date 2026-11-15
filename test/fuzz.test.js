@@ -53,7 +53,11 @@ function checkInvariants(g) {
       });
     });
     if (v.turn?.drawn) assert.ok(v.turn.pid === viewer || v.turn.from === 'discard', 'drawn card leaked');
+    // Cards of players who left lie face-down under the pile: never on show.
+    const top = g.discard.length > g.buried ? g.discard.at(-1) : null;
+    assert.deepEqual(v.discardTop, top ? { r: top.r, s: top.s } : null, 'wrong card on top of the discard pile');
   }
+  if (g.phase === 'roundEnd' || g.phase === 'gameOver') assert.ok(g.phase === 'gameOver' || g.players.length >= 2, 'one player cannot start another round');
 }
 
 const slotsOf = (p) => p.hand.flatMap((s, i) => (s ? [i] : []));
@@ -94,7 +98,7 @@ function randomMove(g, rng) {
   if (rng() < 0.02) return g.autoPlay(pid);
   if (stage === 'draw') {
     if (!g.caboBy && rng() < 0.06) return g.callCabo(pid);
-    if (g.rules.takeDiscard && g.discard.length && rng() < 0.3) return g.takeDiscard(pid);
+    if (g.rules.takeDiscard && g.topDiscard() && rng() < 0.3) return g.takeDiscard(pid);
     return g.drawDeck(pid);
   }
   if (stage === 'decide') {
@@ -156,8 +160,9 @@ test('random games keep every invariant', () => {
     const g = new Game(players(n), randomRules(rng), { rng });
     for (let step = 0; step < 4000 && g.phase !== 'gameOver'; step++) {
       if (rng() < 0.15) chaos(g, rng);
-      // Players leave now and then, more often while someone is looking at a card.
-      else if (rng() < (g.turn?.stage === 'reveal' ? 0.1 : 0.004) && g.players.length > 2) g.removePlayer(g.players[Math.floor(rng() * g.players.length)].id);
+      // Players leave now and then (between rounds too, and down to the last one),
+      // more often while someone is looking at a card.
+      else if (rng() < (g.turn?.stage === 'reveal' ? 0.1 : 0.004)) g.removePlayer(g.players[Math.floor(rng() * g.players.length)].id);
       else randomMove(g, rng);
       checkInvariants(g);
     }

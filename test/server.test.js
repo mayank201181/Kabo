@@ -5,6 +5,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { io as connect } from 'socket.io-client';
 import { createApp } from '../server/index.js';
+import { Room } from '../server/rooms.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let srv;
@@ -319,7 +320,7 @@ test('once an offline player has missed a turn, their next turns pass quickly un
   const seat = b.view.me;
   const clocks = [];
   a.socket.on('state', ({ view }) => {
-    if (view.timer?.pid === seat && view.timer.reason === 'offline') clocks.push(view.timer.total);
+    if (view.game?.phase === 'turn' && view.timer?.pid === seat && view.timer.reason === 'offline') clocks.push(view.timer.total);
   });
   const missed = () => a.events.filter((e) => e.t === 'timeout' && e.pid === seat).length;
   // Play the host's turns (draw and discard) until the away player has missed `n` turns.
@@ -417,4 +418,154 @@ test('junk input is rejected without taking the server down', async () => {
   const page = await fetch(`${url}/ABCD`);
   assert.equal(page.status, 200);
   a.close();
+});
+
+// ------------------------------------------------ found by the code review
+
+test('a connection that comes in again as someone else lets go of who it was', async () => {
+  const a = new Client('Twice');
+  const b = new Client('Bunty');
+  const { code } = await a.create();
+  await b.join(code);
+  await b.until((v) => v.members.length === 2);
+  const first = a.view.me;
+
+  assert.ok((await a.emit('join', { code, name: 'Second', token: 'second-token-on-the-same-socket' })).ok);
+  await b.until((v) => v.members.length === 3);
+  assert.equal(b.view.members.find((m) => m.id === first).connected, false, 'one connection is one person');
+
+  // ...and through rejoin: the same connection now comes back as the first member.
+  const second = a.view.me;
+  assert.ok((await a.emit('rejoin', { code, token: a.token })).ok);
+  await b.until((v) => v.members.find((m) => m.id === first).connected);
+  assert.equal(b.view.members.find((m) => m.id === second).connected, false);
+
+  a.close();
+  await b.until((v) => v.host === v.me, 3000); // nobody is left "connected" without a connection
+  b.close();
+  await sleep(50);
+  const room = srv.rooms.get(code);
+  assert.equal(room.someoneHere(), false);
+  assert.equal(room.isIdle(Date.now() + 2 * 60 * 60_000), true, 'the empty room can be swept');
+});
+
+// ------------------------------------------------------------------- F13
+
+test('a host who is watching takes over an offline seat without waiting for anyone', async () => {
+  for (const askFirst of [true, false]) {
+    const a = new Client('Asha');
+    const { code } = await a.create();
+    await a.cmd('addBot');
+    await a.cmd('start');
+    await a.until((v) => v.game?.phase === 'peek');
+    const seat = a.view.me;
+    a.close(); // the phone dies
+
+    const d = new Client('Asha'); // back on another device: a new token
+    assert.ok((await d.join(code)).ok);
+    await d.until((v) => v.game && v.members.find((m) => m.id === seat)?.connected === false);
+    assert.notEqual(d.view.me, seat);
+    // Either ask while the old phone is still the host, or after the role has moved over.
+    if (!askFirst) await d.until((v) => v.host === v.me, 3000);
+    assert.ok((await d.cmd('claim', { seat })).ok);
+    await d.until((v) => v.me === seat, 3000);
+    assert.equal(d.view.host, seat, 'still the host, now in the seat');
+    assert.equal(d.view.claims.length, 0);
+    assert.ok(d.view.game.players.some((p) => p.id === seat));
+    assert.equal(d.view.members.filter((m) => !m.bot).length, 1);
+    d.close();
+  }
+});
+
+// ------------------------------------------------------------------- F14
+
+test('a quiet room is kept for an hour after the last person leaves, not after the last change', (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
+  const room = new Room('QUET');
+  const socket = { id: 's1', data: {}, emit() {} };
+  room.join('Asha', 'token-asha-quiet-room', socket);
+  room.afterChange();
+  t.mock.timers.tick(61 * 60_000); // nothing happens for 61 minutes; the tab stays connected
+  assert.equal(room.isIdle(), false);
+  room.detach(socket); // the connection drops
+  t.mock.timers.tick(5_000);
+  assert.equal(room.isIdle(), false, 'still there when they reconnect a few seconds later');
+  t.mock.timers.tick(54 * 60_000);
+  assert.equal(room.isIdle(), false);
+  t.mock.timers.tick(7 * 60_000);
+  assert.equal(room.isIdle(), true, 'gone an hour after the last person left');
+  room.destroy();
+});
+
+// ------------------------------------------------------------------- F15
+
+test('a seat that frees up in the lobby goes to someone who is watching', async () => {
+  const host = new Client('Host');
+  const { code } = await host.create();
+  for (let i = 0; i < 9; i++) assert.ok((await host.cmd('addBot')).ok);
+  const late = new Client('Late');
+  assert.ok((await late.join(code)).ok);
+  await late.until((v) => v.members.length === 11);
+  const me = () => late.view.members.find((m) => m.id === late.view.me);
+  assert.equal(me().playing, false, 'the table of 10 is full');
+
+  const bot = host.view.members.find((m) => m.bot);
+  assert.ok((await host.cmd('kick', { id: bot.id })).ok);
+  await late.until((v) => v.members.length === 10);
+  assert.equal(me().playing, true, 'the free seat goes to the person watching');
+  assert.ok((await host.cmd('start')).ok);
+  await late.until((v) => v.game);
+  assert.equal(late.view.game.players.length, 10);
+  assert.ok(late.view.game.players.some((p) => p.id === late.view.me));
+  host.close();
+  late.close();
+});
+
+// ------------------------------------------------------------------- F16
+
+test('only someone who is online can be made host', async () => {
+  const a = new Client('First');
+  const b = new Client('Acting');
+  const c = new Client('Away');
+  const { code } = await a.create();
+  await b.join(code);
+  await c.join(code);
+  await a.until((v) => v.members.length === 3);
+  assert.ok((await a.cmd('makeHost', { id: b.view.me })).ok);
+  await b.until((v) => v.host === v.me);
+  const away = c.view.me;
+  c.close();
+  await b.until((v) => v.members.find((m) => m.id === away).connected === false);
+  await sleep(350); // offline for longer than the host grace
+
+  const res = await b.cmd('makeHost', { id: away });
+  assert.equal(res.ok, false);
+  assert.match(res.error, /offline/);
+  await sleep(60);
+  assert.equal(b.view.host, b.view.me, 'the acting host keeps the role');
+  assert.ok((await b.cmd('makeHost', { id: a.view.me })).ok, 'handing over to someone who is here still works');
+  a.close();
+  b.close();
+});
+
+test('every connection is told which client files the server has', async () => {
+  const a = new Client('Asha');
+  const hello = await new Promise((res) => a.socket.once('hello', res));
+  assert.match(hello.build, /^[0-9a-f]{12}$/);
+  assert.equal(hello.build, srv.build, 'the same for everyone until the next deploy');
+  a.close();
+});
+
+test('people who left can still be named in old log lines', async () => {
+  const a = new Client('Asha');
+  const b = new Client('Bunty');
+  const { code } = await a.create();
+  await b.join(code);
+  await a.until((v) => v.members.length === 2);
+  const left = b.view.me;
+  await b.cmd('leave');
+  await a.until((v) => v.members.length === 1);
+  assert.deepEqual(a.view.gone, [{ id: left, name: 'Bunty' }]);
+  a.close();
+  b.close();
 });
